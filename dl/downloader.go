@@ -250,8 +250,12 @@ func (d *Downloader) merge() error {
 	mergedCount := 0
 	for segIndex := 0; segIndex < d.segLen; segIndex++ {
 		tsFilename := tsFilename(segIndex)
-		bytes, err := os.ReadFile(filepath.Join(d.tsFolder, tsFilename))
-		_, err = writer.Write(bytes)
+		segFile, err := os.Open(filepath.Join(d.tsFolder, tsFilename))
+		if err != nil {
+			continue
+		}
+		_, err = io.Copy(writer, segFile)
+		_ = segFile.Close()
 		if err != nil {
 			continue
 		}
