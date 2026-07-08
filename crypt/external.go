@@ -2,6 +2,7 @@ package crypt
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -15,13 +16,18 @@ import (
 	"time"
 )
 
+// maxExternalLineBytes is the maximum JSON line size for external script I/O.
+// Segment responses include base64-encoded TS data and can exceed bufio.Scanner's 64KB default.
+const maxExternalLineBytes = 16 << 20 // 16 MiB
+
 type externalDecryptor struct {
 	path    string
 	timeout time.Duration
-	mu      sync.Mutex
+	procMu  sync.Mutex // protects process start/stop/restart
+	callMu  sync.Mutex // serializes stdin/stdout request-response pairs
 	cmd     *exec.Cmd
 	stdin   io.WriteCloser
-	stdout  *bufio.Scanner
+	stdout  *bufio.Reader
 	nextID  atomic.Int64
 }
 
@@ -58,8 +64,14 @@ func newExternalDecryptor(path string, timeout time.Duration) (Decryptor, error)
 func (d *externalDecryptor) Name() string { return filepath.Base(d.path) }
 
 func (d *externalDecryptor) Close() error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	d.callMu.Lock()
+	defer d.callMu.Unlock()
+	d.procMu.Lock()
+	defer d.procMu.Unlock()
+	return d.stopLocked()
+}
+
+func (d *externalDecryptor) stopLocked() error {
 	if d.stdin != nil {
 		_ = d.stdin.Close()
 		d.stdin = nil
@@ -74,13 +86,18 @@ func (d *externalDecryptor) Close() error {
 }
 
 func (d *externalDecryptor) start() error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	d.procMu.Lock()
+	defer d.procMu.Unlock()
 	return d.startLocked()
 }
 
 func (d *externalDecryptor) startLocked() error {
-	cmd := exec.Command(d.path)
+	var cmd *exec.Cmd
+	if strings.HasSuffix(strings.ToLower(d.path), ".py") {
+		cmd = exec.Command("python3", d.path)
+	} else {
+		cmd = exec.Command(d.path)
+	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return err
@@ -94,23 +111,16 @@ func (d *externalDecryptor) startLocked() error {
 	}
 	d.cmd = cmd
 	d.stdin = stdin
-	d.stdout = bufio.NewScanner(stdout)
+	d.stdout = bufio.NewReader(stdout)
 	return nil
 }
 
 func (d *externalDecryptor) restart() error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if d.stdin != nil {
-		_ = d.stdin.Close()
-		d.stdin = nil
-	}
-	if d.cmd != nil && d.cmd.Process != nil {
-		_ = d.cmd.Process.Kill()
-		_ = d.cmd.Wait()
-	}
-	d.cmd = nil
-	d.stdout = nil
+	d.callMu.Lock()
+	defer d.callMu.Unlock()
+	d.procMu.Lock()
+	defer d.procMu.Unlock()
+	_ = d.stopLocked()
 	return d.startLocked()
 }
 
@@ -140,8 +150,13 @@ func isTimeoutErr(err error) bool {
 }
 
 func (d *externalDecryptor) doCall(req extRequest) (extResponse, error) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	d.callMu.Lock()
+	defer d.callMu.Unlock()
+
+	if d.stdin == nil || d.stdout == nil {
+		return extResponse{}, fmt.Errorf("external script stdout closed")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), d.timeout)
 	defer cancel()
 
@@ -159,12 +174,17 @@ func (d *externalDecryptor) doCall(req extRequest) (extResponse, error) {
 	}
 	ch := make(chan result, 1)
 	go func() {
-		if !d.stdout.Scan() {
-			ch <- result{err: fmt.Errorf("external script stdout closed")}
+		respLine, err := readExternalLine(d.stdout, maxExternalLineBytes)
+		if err != nil {
+			if err == io.EOF {
+				ch <- result{err: fmt.Errorf("external script stdout closed")}
+				return
+			}
+			ch <- result{err: err}
 			return
 		}
 		var resp extResponse
-		if err := json.Unmarshal(d.stdout.Bytes(), &resp); err != nil {
+		if err := json.Unmarshal(respLine, &resp); err != nil {
 			ch <- result{err: err}
 			return
 		}
@@ -173,9 +193,12 @@ func (d *externalDecryptor) doCall(req extRequest) (extResponse, error) {
 
 	select {
 	case <-ctx.Done():
+		d.procMu.Lock()
 		if d.cmd != nil && d.cmd.Process != nil {
 			_ = d.cmd.Process.Kill()
 		}
+		_ = d.stopLocked()
+		d.procMu.Unlock()
 		return extResponse{}, fmt.Errorf("external script timeout after %s", d.timeout)
 	case r := <-ch:
 		if r.err != nil {
@@ -192,6 +215,32 @@ func (d *externalDecryptor) doCall(req extRequest) (extResponse, error) {
 		}
 		return r.resp, nil
 	}
+}
+
+func readExternalLine(r *bufio.Reader, maxBytes int) ([]byte, error) {
+	line, err := r.ReadBytes('\n')
+	if err != nil && err != io.EOF {
+		return nil, err
+	}
+	line = bytes.TrimSuffix(line, []byte{'\n'})
+	line = bytes.TrimSuffix(line, []byte{'\r'})
+	if len(line) > maxBytes {
+		return nil, fmt.Errorf("external script response exceeds %d bytes", maxBytes)
+	}
+	if err == io.EOF && len(line) == 0 {
+		return nil, io.EOF
+	}
+	return line, nil
+}
+
+func decodeExternalIV(fallback, encoded string) []byte {
+	if encoded == "" {
+		return []byte(fallback)
+	}
+	if iv, err := base64.StdEncoding.DecodeString(encoded); err == nil {
+		return iv
+	}
+	return []byte(encoded)
 }
 
 func (d *externalDecryptor) ProcessKey(ctx *Context, rawKey []byte, meta *KeyMeta) ([]byte, []byte, error) {
@@ -215,11 +264,7 @@ func (d *externalDecryptor) ProcessKey(ctx *Context, rawKey []byte, meta *KeyMet
 	if err != nil {
 		return nil, nil, fmt.Errorf("invalid key in response: %w", err)
 	}
-	outIV := []byte(iv)
-	if resp.IV != "" {
-		outIV = []byte(resp.IV)
-	}
-	return key, outIV, nil
+	return key, decodeExternalIV(iv, resp.IV), nil
 }
 
 func (d *externalDecryptor) DecryptSegment(ctx *Context, ciphertext, key, iv []byte) ([]byte, error) {

@@ -78,7 +78,13 @@ func NewTask(output string, url string, filename string, httpCfg *tool.HTTPConfi
 	if err != nil {
 		return nil, err
 	}
+	return NewTaskFromResult(output, url, filename, result, httpCfg, cryptSvc)
+}
+
+// NewTaskFromResult builds a downloader from an already-parsed playlist (avoids duplicate Key hooks).
+func NewTaskFromResult(output string, url string, filename string, result *parse.Result, httpCfg *tool.HTTPConfig, cryptSvc *crypt.Service) (*Downloader, error) {
 	var folder string
+	var err error
 	if output == "" {
 		output = "."
 	}
@@ -145,9 +151,6 @@ func NewTask(output string, url string, filename string, httpCfg *tool.HTTPConfi
 
 // Start runs downloader. When toMP4 is true, merged TS is converted to MP4 via ffmpeg.
 func (d *Downloader) Start(concurrency int, toMP4 bool, maxRetry int) error {
-	if d.cryptSvc != nil {
-		defer func() { _ = d.cryptSvc.Close() }()
-	}
 	if d.cancelled() {
 		return d.cancelCtx.Err()
 	}

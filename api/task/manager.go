@@ -29,6 +29,7 @@ type Manager struct {
 	running  int
 	workCh   chan *api.TaskRecord
 	onCancel map[string]context.CancelFunc
+	parsed   sync.Map // taskID -> *parse.Result, populated at Create
 }
 
 func NewManager(cfg Config) (*Manager, error) {
@@ -100,6 +101,7 @@ func (m *Manager) Create(req *api.CreateTaskRequest, maxRetry int) (*api.TaskRec
 		return nil, err
 	}
 
+	m.parsed.Store(rec.TaskID, result)
 	m.enqueue(rec)
 	return rec, nil
 }
@@ -186,6 +188,22 @@ func (m *Manager) TaskDir(taskID string) string {
 
 func (m *Manager) CryptService() *crypt.Service {
 	return m.cryptSvc
+}
+
+// Close releases shared resources (external decryptor processes, etc.).
+func (m *Manager) Close() error {
+	if m.cryptSvc != nil {
+		return m.cryptSvc.Close()
+	}
+	return nil
+}
+
+func (m *Manager) takeParsedResult(taskID string) *parse.Result {
+	v, ok := m.parsed.LoadAndDelete(taskID)
+	if !ok {
+		return nil
+	}
+	return v.(*parse.Result)
 }
 
 func (m *Manager) Recover() error {

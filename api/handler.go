@@ -22,6 +22,7 @@ type TaskManager interface {
 	ToResponse(rec *TaskRecord) TaskResponse
 	TaskDir(taskID string) string
 	CryptService() *crypt.Service
+	Close() error
 }
 
 type Handler struct {

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"time"
@@ -22,6 +23,7 @@ type ServerConfig struct {
 type Server struct {
 	*http.Server
 	Handler http.Handler
+	manager TaskManager
 }
 
 type managerFactory func(ServerConfig) (TaskManager, error)
@@ -64,5 +66,14 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		Handler:           r,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-	return &Server{Server: srv, Handler: r}, nil
+	return &Server{Server: srv, Handler: r, manager: mgr}, nil
+}
+
+// Shutdown gracefully stops the HTTP server and releases manager resources.
+func (s *Server) Shutdown(ctx context.Context) error {
+	err := s.Server.Shutdown(ctx)
+	if closeErr := s.manager.Close(); closeErr != nil && err == nil {
+		err = closeErr
+	}
+	return err
 }

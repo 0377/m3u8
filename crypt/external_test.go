@@ -1,6 +1,9 @@
 package crypt
 
 import (
+	"bufio"
+	"bytes"
+	"encoding/base64"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -69,5 +72,34 @@ func TestExternalDecryptor_restarts_after_crash(t *testing.T) {
 	}
 	if string(out) != "second" {
 		t.Fatalf("got %q", out)
+	}
+}
+
+func TestReadExternalLine_large(t *testing.T) {
+	payload := strings.Repeat("A", 128*1024)
+	line := []byte(payload + "\n")
+	r := bufio.NewReader(bytes.NewReader(line))
+	got, err := readExternalLine(r, maxExternalLineBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != len(payload) {
+		t.Fatalf("got len %d want %d", len(got), len(payload))
+	}
+}
+
+func TestDecodeExternalIV(t *testing.T) {
+	encoded := base64.StdEncoding.EncodeToString([]byte{1, 2, 3})
+	got := decodeExternalIV("fallback", encoded)
+	if string(got) != string([]byte{1, 2, 3}) {
+		t.Fatalf("base64 decode failed: %v", got)
+	}
+	got = decodeExternalIV("fallback", "plain")
+	if string(got) != "plain" {
+		t.Fatalf("plain fallback failed: %q", got)
+	}
+	got = decodeExternalIV("fallback", "")
+	if string(got) != "fallback" {
+		t.Fatalf("empty uses fallback: %q", got)
 	}
 }

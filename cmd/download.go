@@ -96,6 +96,7 @@ func RunDownload(args []string) {
 		fmt.Fprintf(os.Stderr, "错误: %v\n", err)
 		os.Exit(1)
 	}
+	defer func() { _ = cryptSvc.Close() }()
 
 	downloader, err := dl.NewTask(output, url, filename, httpCfg, cryptSvc)
 	if err != nil {
