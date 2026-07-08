@@ -1,6 +1,9 @@
 package crypt
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -28,9 +31,7 @@ func newStarlarkDecryptor(path string) (Decryptor, error) {
 		return nil, err
 	}
 	thread := &starlark.Thread{Name: filepath.Base(path)}
-	predeclared := starlark.StringDict{
-		"aes128_cbc_decrypt": starlark.NewBuiltin("aes128_cbc_decrypt", starlarkAES128Decrypt),
-	}
+	predeclared := starlarkPredeclared()
 	globals, err := starlark.ExecFile(thread, path, src, predeclared)
 	if err != nil {
 		return nil, fmt.Errorf("load starlark script %s: %w", path, err)
@@ -123,6 +124,62 @@ func (d *starlarkDecryptor) DecryptFull(ctx *Context, ciphertext []byte) ([]byte
 	}
 	out, err := starlarkToBytes(val)
 	return out, true, err
+}
+
+func starlarkPredeclared() starlark.StringDict {
+	return starlark.StringDict{
+		"aes128_cbc_decrypt":      starlark.NewBuiltin("aes128_cbc_decrypt", starlarkAES128Decrypt),
+		"sha256":                  starlark.NewBuiltin("sha256", starlarkSHA256),
+		"hex_decode":              starlark.NewBuiltin("hex_decode", starlarkHexDecode),
+		"base64_decode":           starlark.NewBuiltin("base64_decode", starlarkBase64Decode),
+		"aes_cbc_decrypt_zero_iv": starlark.NewBuiltin("aes_cbc_decrypt_zero_iv", starlarkAESCBCDecryptZeroIV),
+	}
+}
+
+func starlarkSHA256(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var data starlark.Bytes
+	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "data", &data); err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256([]byte(data))
+	return starlarkBytes(sum[:]), nil
+}
+
+func starlarkHexDecode(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var s starlark.String
+	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "s", &s); err != nil {
+		return nil, err
+	}
+	out, err := hex.DecodeString(string(s))
+	if err != nil {
+		return nil, err
+	}
+	return starlarkBytes(out), nil
+}
+
+func starlarkBase64Decode(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var s starlark.String
+	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "s", &s); err != nil {
+		return nil, err
+	}
+	out, err := base64.StdEncoding.DecodeString(string(s))
+	if err != nil {
+		return nil, err
+	}
+	return starlarkBytes(out), nil
+}
+
+func starlarkAESCBCDecryptZeroIV(_ *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	var ct, key starlark.Bytes
+	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "ciphertext", &ct, "key", &key); err != nil {
+		return nil, err
+	}
+	zeroIV := make([]byte, 16)
+	out, err := tool.AES128CBCDecryptRaw([]byte(ct), []byte(key), zeroIV)
+	if err != nil {
+		return nil, err
+	}
+	return starlarkBytes(out), nil
 }
 
 func starlarkAES128Decrypt(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
