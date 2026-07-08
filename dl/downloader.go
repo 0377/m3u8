@@ -17,7 +17,7 @@ import (
 const (
 	tsExt            = ".ts"
 	tsFolderName     = "ts"
-	mergeTSFilename  = "main.ts"
+	defaultBaseName  = "main"
 	tsTempFileSuffix = "_tmp"
 	progressWidth    = 40
 )
@@ -27,14 +27,17 @@ type Downloader struct {
 	queue    []int
 	folder   string
 	tsFolder string
+	outputTS string
+	outputMP4 string
 	finish   int32
 	segLen   int
 
 	result *parse.Result
 }
 
-// NewTask returns a Task instance
-func NewTask(output string, url string) (*Downloader, error) {
+// NewTask returns a Task instance.
+// filename is the output base name or filename (e.g. "video", "video.mp4"); empty uses "main".
+func NewTask(output string, url string, filename string) (*Downloader, error) {
 	result, err := parse.FromURL(url)
 	if err != nil {
 		return nil, err
@@ -53,14 +56,20 @@ func NewTask(output string, url string) (*Downloader, error) {
 	if err := os.MkdirAll(folder, os.ModePerm); err != nil {
 		return nil, fmt.Errorf("create storage folder failed: %s", err.Error())
 	}
+	tsPath, mp4Path, err := resolveOutputPaths(folder, filename)
+	if err != nil {
+		return nil, err
+	}
 	tsFolder := filepath.Join(folder, tsFolderName)
 	if err := os.MkdirAll(tsFolder, os.ModePerm); err != nil {
 		return nil, fmt.Errorf("create ts folder '[%s]' failed: %s", tsFolder, err.Error())
 	}
 	d := &Downloader{
-		folder:   folder,
-		tsFolder: tsFolder,
-		result:   result,
+		folder:    folder,
+		tsFolder:  tsFolder,
+		outputTS:  tsPath,
+		outputMP4: mp4Path,
+		result:    result,
 	}
 	d.segLen = len(result.M3u8.Segments)
 	d.queue = genSlice(d.segLen)
@@ -99,9 +108,7 @@ func (d *Downloader) Start(concurrency int, toMP4 bool) error {
 		return err
 	}
 	if toMP4 {
-		tsPath := filepath.Join(d.folder, mergeTSFilename)
-		mp4Path := filepath.Join(d.folder, "main.mp4")
-		if err := tool.ConvertTSToMP4(tsPath, mp4Path); err != nil {
+		if err := tool.ConvertTSToMP4(d.outputTS, d.outputMP4); err != nil {
 			return err
 		}
 	}
@@ -209,7 +216,7 @@ func (d *Downloader) merge() error {
 	}
 
 	// Create a TS file for merging, all segment files will be written to this file.
-	mFilePath := filepath.Join(d.folder, mergeTSFilename)
+	mFilePath := d.outputTS
 	mFile, err := os.Create(mFilePath)
 	if err != nil {
 		return fmt.Errorf("create main TS file failed：%s", err.Error())
@@ -258,4 +265,14 @@ func genSlice(len int) []int {
 		s = append(s, i)
 	}
 	return s
+}
+
+func resolveOutputPaths(dir, filename string) (tsPath, mp4Path string, err error) {
+	baseName, err := tool.ResolveOutputBaseName(filename)
+	if err != nil {
+		return "", "", err
+	}
+	tsPath = filepath.Join(dir, baseName+tsExt)
+	mp4Path = filepath.Join(dir, baseName+".mp4")
+	return tsPath, mp4Path, nil
 }

@@ -13,6 +13,7 @@ const version = "1.2.0"
 var (
 	url      string
 	output   string
+	filename string
 	chanSize int
 	toMP4    bool
 	showHelp bool
@@ -21,6 +22,7 @@ var (
 func init() {
 	flag.StringVar(&url, "u", "", "M3U8 地址（必填）")
 	flag.StringVar(&output, "o", "", "输出目录（必填）")
+	flag.StringVar(&filename, "f", "main", "输出文件名（可带 .ts/.mp4 扩展名，默认 main）")
 	flag.IntVar(&chanSize, "c", 25, "下载并发数")
 	flag.BoolVar(&toMP4, "mp4", true, "合并后转 MP4（默认开启，使用 -mp4=false 关闭）")
 	flag.BoolVar(&showHelp, "h", false, "显示帮助信息")
@@ -47,7 +49,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	downloader, err := dl.NewTask(output, url)
+	downloader, err := dl.NewTask(output, url, filename)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "错误: %v\n", err)
 		os.Exit(1)
@@ -71,11 +73,12 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `
 示例:
   m3u8 -u=https://example.com/index.m3u8 -o=./output
-  m3u8 -u https://example.com/index.m3u8 -o ./output -c 10
+  m3u8 -u https://example.com/index.m3u8 -o ./output -f myvideo
+  m3u8 -u https://example.com/index.m3u8 -o ./output -f myvideo.mp4 -c 10
 
 说明:
   - 仅支持 VOD 类型 M3U8
-  - 合并后的文件保存为 <目录>/main.ts，默认同时输出 main.mp4
+  - -f 指定输出文件名，合并为 <目录>/<名称>.ts，转 MP4 时为 <目录>/<名称>.mp4
   - 转 MP4 需要系统已安装 ffmpeg
   - 部分链接限制请求频率，可适当调低 -c 并发数
 `)
