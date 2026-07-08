@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/0377/m3u8/api"
+	"github.com/0377/m3u8/crypt"
 	"github.com/0377/m3u8/parse"
 	"github.com/0377/m3u8/tool"
 	"github.com/google/uuid"
@@ -23,23 +24,29 @@ type Config struct {
 type Manager struct {
 	store    *Store
 	cfg      Config
+	cryptSvc *crypt.Service
 	mu       sync.Mutex
 	running  int
 	workCh   chan *api.TaskRecord
 	onCancel map[string]context.CancelFunc
 }
 
-func NewManager(cfg Config) *Manager {
+func NewManager(cfg Config) (*Manager, error) {
 	maxTasks := cfg.MaxTasks
 	if maxTasks <= 0 {
 		maxTasks = 1
 	}
+	cryptSvc, err := crypt.BuildService(crypt.ServiceOptions{})
+	if err != nil {
+		return nil, err
+	}
 	return &Manager{
 		store:    NewStore(filepath.Join(cfg.DataDir, "tasks")),
 		cfg:      cfg,
+		cryptSvc: cryptSvc,
 		workCh:   make(chan *api.TaskRecord, maxTasks),
 		onCancel: make(map[string]context.CancelFunc),
-	}
+	}, nil
 }
 
 func (m *Manager) Create(req *api.CreateTaskRequest, maxRetry int) (*api.TaskRecord, error) {
@@ -61,7 +68,7 @@ func (m *Manager) Create(req *api.CreateTaskRequest, maxRetry int) (*api.TaskRec
 	}
 	m.mu.Unlock()
 
-	result, err := parse.FromURL(req.URL, nil)
+	result, err := parse.FromURL(req.URL, nil, m.cryptSvc)
 	if err != nil {
 		return nil, err
 	}
@@ -175,6 +182,10 @@ func (m *Manager) ToResponse(rec *api.TaskRecord) api.TaskResponse {
 
 func (m *Manager) TaskDir(taskID string) string {
 	return m.store.TaskDir(taskID)
+}
+
+func (m *Manager) CryptService() *crypt.Service {
+	return m.cryptSvc
 }
 
 func (m *Manager) Recover() error {

@@ -66,7 +66,7 @@ func TestResumeSkip(t *testing.T) {
 	url := srv.URL + "/index.m3u8"
 	filename := "video"
 
-	d1, err := NewTask(dir, url, filename, nil)
+	d1, err := NewTask(dir, url, filename, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestResumeSkip(t *testing.T) {
 		}
 	}
 
-	d2, err := NewTask(dir, url, filename, nil)
+	d2, err := NewTask(dir, url, filename, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,11 +114,11 @@ func TestResumeSkip_metaMismatch(t *testing.T) {
 	dir := t.TempDir()
 	url := srv.URL + "/index.m3u8"
 
-	if _, err := NewTask(dir, url, "video1", nil); err != nil {
+	if _, err := NewTask(dir, url, "video1", nil, nil); err != nil {
 		t.Fatal(err)
 	}
 
-	_, err := NewTask(dir, url, "video2", nil)
+	_, err := NewTask(dir, url, "video2", nil, nil)
 	if err == nil {
 		t.Fatal("expected error for filename mismatch")
 	}

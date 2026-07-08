@@ -64,7 +64,7 @@ func (m *Manager) runTask(rec *api.TaskRecord) {
 	_ = m.store.Save(rec)
 
 	taskDir := m.store.TaskDir(rec.TaskID)
-	downloader, err := dl.NewTask(taskDir, rec.URL, rec.Filename, nil)
+	downloader, err := dl.NewTask(taskDir, rec.URL, rec.Filename, nil, m.cryptSvc)
 	if err != nil {
 		m.failTask(rec, err.Error())
 		return

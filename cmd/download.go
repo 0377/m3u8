@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/0377/m3u8/crypt"
 	"github.com/0377/m3u8/dl"
 	"github.com/0377/m3u8/tool"
 )
@@ -27,16 +28,19 @@ func RunDownload(args []string) {
 	fs := flag.NewFlagSet("download", flag.ExitOnError)
 
 	var (
-		url         string
-		output      string
-		filename    string
-		chanSize    int
-		maxRetry    int
-		toMP4       bool
-		showHelp    bool
-		headerLines headerList
-		cookie      string
-		insecureTLS bool
+		url           string
+		output        string
+		filename      string
+		chanSize      int
+		maxRetry      int
+		toMP4         bool
+		showHelp      bool
+		headerLines   headerList
+		cookie        string
+		insecureTLS   bool
+		decryptScript string
+		decryptConfig string
+		scriptsDir    string
 	)
 
 	fs.StringVar(&url, "u", "", "M3U8 地址（必填）")
@@ -48,6 +52,9 @@ func RunDownload(args []string) {
 	fs.Var(&headerLines, "H", "自定义 HTTP 请求头，格式 \"Key: Value\"，可重复指定")
 	fs.StringVar(&cookie, "cookie", "", "自定义 Cookie 请求头")
 	fs.BoolVar(&insecureTLS, "k", false, "跳过 HTTPS 证书验证（不安全，仅用于自签名证书等场景）")
+	fs.StringVar(&decryptScript, "decrypt-script", "", "解密脚本路径（.star 或 .py）")
+	fs.StringVar(&decryptConfig, "decrypt-config", "decrypt.yaml", "解密配置文件路径")
+	fs.StringVar(&scriptsDir, "scripts-dir", "scripts", "解密脚本库目录")
 	fs.BoolVar(&showHelp, "h", false, "显示帮助信息")
 	fs.BoolVar(&showHelp, "help", false, "显示帮助信息")
 	fs.Usage = func() { downloadUsage(fs) }
@@ -80,7 +87,17 @@ func RunDownload(args []string) {
 		os.Exit(1)
 	}
 
-	downloader, err := dl.NewTask(output, url, filename, httpCfg)
+	cryptSvc, err := crypt.BuildService(crypt.ServiceOptions{
+		DecryptScript: decryptScript,
+		DecryptConfig: decryptConfig,
+		ScriptsDir:    scriptsDir,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "错误: %v\n", err)
+		os.Exit(1)
+	}
+
+	downloader, err := dl.NewTask(output, url, filename, httpCfg, cryptSvc)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "错误: %v\n", err)
 		os.Exit(1)
@@ -123,6 +140,8 @@ func downloadUsage(fs *flag.FlagSet) {
   m3u8 -u https://example.com/index.m3u8 -o ./output -f myvideo
   m3u8 -u https://example.com/index.m3u8 -H "Referer: https://example.com/" -cookie "session=abc"
   m3u8 -u https://self-signed.example.com/index.m3u8 -k
+  m3u8 -u https://example.com/index.m3u8 -decrypt-script scripts/custom.star
+  m3u8 -u https://example.com/index.m3u8 -decrypt-config decrypt.yaml -scripts-dir scripts
 
 说明:
   - 仅支持 VOD 类型 M3U8
@@ -131,5 +150,7 @@ func downloadUsage(fs *flag.FlagSet) {
   - 转 MP4 需要系统已安装 ffmpeg
   - 部分链接限制请求频率，可适当调低 -c 并发数或提高 -r 重试次数
   - -H 可多次指定自定义请求头；-cookie 设置 Cookie；-k 跳过 HTTPS 证书验证
+  - -decrypt-script 指定解密脚本；-decrypt-config 指定解密配置（默认 decrypt.yaml）
+  - -scripts-dir 指定脚本库目录（默认 scripts），按 METHOD/域名自动匹配
 `)
 }

@@ -23,12 +23,21 @@ func newTestM3U8Server(t *testing.T) *httptest.Server {
 	return httptest.NewServer(mux)
 }
 
+func newTestManager(t *testing.T, cfg Config) *Manager {
+	t.Helper()
+	m, err := NewManager(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
 func TestManagerCreateAndGet(t *testing.T) {
 	srv := newTestM3U8Server(t)
 	defer srv.Close()
 
 	dir := t.TempDir()
-	m := NewManager(Config{
+	m := newTestManager(t, Config{
 		DataDir:  dir,
 		MaxTasks: 3,
 		TaskTTL:  24 * time.Hour,
@@ -51,7 +60,7 @@ func TestManagerCreateAndGet(t *testing.T) {
 
 func TestManagerRecoverNoDeadlock(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManager(Config{DataDir: dir, MaxTasks: 2, TaskTTL: time.Hour})
+	m := newTestManager(t, Config{DataDir: dir, MaxTasks: 2, TaskTTL: time.Hour})
 
 	now := time.Now().UTC()
 	for i := 0; i < 4; i++ {
@@ -87,7 +96,7 @@ func TestManagerRecoverNoDeadlock(t *testing.T) {
 
 func TestManagerListEmptyOffset(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManager(Config{DataDir: dir, MaxTasks: 1, TaskTTL: time.Hour})
+	m := newTestManager(t, Config{DataDir: dir, MaxTasks: 1, TaskTTL: time.Hour})
 	tasks, err := m.List("", 20, 100)
 	if err != nil {
 		t.Fatal(err)
@@ -105,7 +114,7 @@ func TestManagerMaxTasksLimit(t *testing.T) {
 	defer srv.Close()
 
 	dir := t.TempDir()
-	m := NewManager(Config{DataDir: dir, MaxTasks: 1, TaskTTL: time.Hour})
+	m := newTestManager(t, Config{DataDir: dir, MaxTasks: 1, TaskTTL: time.Hour})
 	_, err := m.Create(&api.CreateTaskRequest{URL: srv.URL + "/a.m3u8"}, 10)
 	if err != nil {
 		t.Fatal(err)

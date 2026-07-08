@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"github.com/0377/m3u8/crypt"
 	"github.com/0377/m3u8/parse"
 	"github.com/go-chi/chi/v5"
 )
@@ -20,6 +21,7 @@ type TaskManager interface {
 	Cancel(taskID string) error
 	ToResponse(rec *TaskRecord) TaskResponse
 	TaskDir(taskID string) string
+	CryptService() *crypt.Service
 }
 
 type Handler struct {
@@ -41,7 +43,7 @@ func (h *Handler) Parse(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "url 为必填项")
 		return
 	}
-	result, err := parse.FromURL(req.URL, nil)
+	result, err := parse.FromURL(req.URL, nil, h.manager.CryptService())
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "PARSE_FAILED", err.Error())
 		return

@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/0377/m3u8/crypt"
 	"github.com/0377/m3u8/parse"
 	"github.com/0377/m3u8/tool"
 )
@@ -41,8 +42,9 @@ type Downloader struct {
 	reporter  ProgressReporter
 	cancelCtx context.Context
 
-	result  *parse.Result
-	httpCfg *tool.HTTPConfig
+	result   *parse.Result
+	httpCfg  *tool.HTTPConfig
+	cryptSvc *crypt.Service
 }
 
 func (d *Downloader) SetProgressReporter(fn ProgressReporter) {
@@ -71,8 +73,8 @@ func (d *Downloader) reportProgress(message string) {
 
 // NewTask returns a Task instance.
 // filename is the output base name or filename (e.g. "video", "video.mp4"); empty uses "main".
-func NewTask(output string, url string, filename string, httpCfg *tool.HTTPConfig) (*Downloader, error) {
-	result, err := parse.FromURL(url, httpCfg)
+func NewTask(output string, url string, filename string, httpCfg *tool.HTTPConfig, cryptSvc *crypt.Service) (*Downloader, error) {
+	result, err := parse.FromURL(url, httpCfg, cryptSvc)
 	if err != nil {
 		return nil, err
 	}
@@ -131,8 +133,9 @@ func NewTask(output string, url string, filename string, httpCfg *tool.HTTPConfi
 		outputMP4: mp4Path,
 		retries:   make(map[int]int),
 		failed:    make(map[int]struct{}),
-		result:    result,
-		httpCfg:   httpCfg,
+		result:   result,
+		httpCfg:  httpCfg,
+		cryptSvc: cryptSvc,
 	}
 	d.segLen = segLen
 	d.queue = buildQueue(segLen, completed)
@@ -142,6 +145,9 @@ func NewTask(output string, url string, filename string, httpCfg *tool.HTTPConfi
 
 // Start runs downloader. When toMP4 is true, merged TS is converted to MP4 via ffmpeg.
 func (d *Downloader) Start(concurrency int, toMP4 bool, maxRetry int) error {
+	if d.cryptSvc != nil {
+		defer func() { _ = d.cryptSvc.Close() }()
+	}
 	if d.cancelled() {
 		return d.cancelCtx.Err()
 	}
@@ -225,12 +231,34 @@ func (d *Downloader) download(segIndex int) error {
 	if sf == nil {
 		return fmt.Errorf("invalid segment index: %d", segIndex)
 	}
-	key, ok := d.result.Keys[sf.KeyIndex]
-	if ok && key != "" {
-		bytes, err = tool.AES128Decrypt(bytes, []byte(key),
-			[]byte(d.result.M3u8.Keys[sf.KeyIndex].IV))
+	keyMat, ok := d.result.Keys[sf.KeyIndex]
+	if ok && len(keyMat.Key) > 0 {
+		iv := keyMat.IV
+		if len(iv) == 0 && d.result.M3u8.Keys[sf.KeyIndex] != nil {
+			iv = []byte(d.result.M3u8.Keys[sf.KeyIndex].IV)
+		}
+		ctx := &crypt.Context{
+			M3U8URL:    d.result.URL.String(),
+			SegmentURI: sf.URI,
+			SegmentIdx: segIndex,
+			Key:        keyMat.Key,
+			IV:         iv,
+		}
+		if k := d.result.M3u8.Keys[sf.KeyIndex]; k != nil {
+			ctx.Method = string(k.Method)
+			ctx.KeyMeta = crypt.KeyMeta{
+				Method: string(k.Method),
+				URI:    k.URI,
+				IV:     k.IV,
+			}
+		}
+		if d.cryptSvc != nil {
+			bytes, err = d.cryptSvc.DecryptSegment(ctx, bytes, keyMat.Key, iv)
+		} else {
+			bytes, err = tool.AES128Decrypt(bytes, keyMat.Key, iv)
+		}
 		if err != nil {
-			return fmt.Errorf("decryt: %s, %s", tsUrl, err.Error())
+			return fmt.Errorf("decrypt: %s, %s", tsUrl, err.Error())
 		}
 	}
 	// https://en.wikipedia.org/wiki/MPEG_transport_stream
