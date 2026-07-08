@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/github/license/0377/m3u8)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/0377/m3u8)](https://github.com/0377/m3u8/releases)
 
-A lightweight M3U8 downloader written in Go. It parses HLS playlists, downloads TS segments concurrently, decrypts AES-128 encrypted streams, merges them into a single file, and optionally remuxes to MP4 via ffmpeg.
+A lightweight M3U8 downloader written in Go (v1.3.0). It parses HLS playlists, downloads TS segments concurrently, decrypts AES-128 and cloud VOD encrypted streams, merges them into a single file, and optionally remuxes to MP4 via ffmpeg.
 
 Two modes are available:
 
@@ -22,6 +22,7 @@ Two modes are available:
 - Per-segment retry on failure
 - Per-segment resume (re-run with the same `-u`, `-o`, and `-f` to skip completed segments)
 - AES-128 segment decryption
+- Built-in cloud VOD decryption (Tencent SimpleAES, Alibaba HLS standard encryption)
 - Pluggable decrypt scripts (Starlark / external process, configured via `decrypt.yaml`)
 - Merge TS segments into a single file
 - Remux to MP4 via ffmpeg (stream copy, no re-encoding)
@@ -130,13 +131,20 @@ Windows PowerShell:
 
 ## Cloud VOD Encryption
 
-Built-in support for Tencent Cloud SimpleAES and Alibaba Cloud HLS standard encryption, including URL preprocessing and secondary key decryption. Credentials are passed via CLI flags only — not stored in config files.
+Built-in support for Tencent Cloud SimpleAES and Alibaba Cloud HLS standard encryption, including URL preprocessing and secondary key decryption. When cloud VOD signatures are detected, the built-in provider is activated automatically — **no `-decrypt-script` is usually needed**.
+
+| Provider | Auto-detection (either condition) | Key handling |
+|----------|-----------------------------------|--------------|
+| Tencent SimpleAES | M3U8 host `*.vod2.myqcloud.com`; or key URI contains `drm.vod2.myqcloud.com` + `drmType=SimpleAES` | `SHA256(pkey)` → AES-CBC (zero IV) decrypts ciphertext key |
+| Alibaba HLS standard | M3U8 URL contains `MtsHlsUriToken=`; or key URI contains `Ciphertext=` | 16-byte binary or Base64 response → 16-byte AES key |
+
+Credentials are passed via CLI flags only — not stored in config files or `decrypt.yaml`.
 
 | Flag | Description |
 |------|-------------|
-| `-drm-token` | Tencent Cloud DrmToken |
+| `-drm-token` | Tencent Cloud DrmToken (inserts `voddrm.token.{token}` into M3U8 path) |
 | `-pkey` | Tencent Cloud SimpleAES playback key |
-| `-mts-token` | Alibaba Cloud MtsHlsUriToken |
+| `-mts-token` | Alibaba Cloud MtsHlsUriToken (appended to M3U8 URL query) |
 
 ```bash
 # Tencent Cloud SimpleAES
@@ -148,6 +156,10 @@ Built-in support for Tencent Cloud SimpleAES and Alibaba Cloud HLS standard encr
 ./m3u8 -u "https://example.aliyundoc.com/test.m3u8?MediaId=xxx" \
   -mts-token "your-token"
 ```
+
+Key hook priority: **explicit `-decrypt-script` > built-in provider > `decrypt.yaml` / auto-discovered script > raw key**. URL preprocessing (`-drm-token` / `-mts-token`) still runs when `-decrypt-script` is set.
+
+Reference Starlark scripts for debugging: `scripts/tencent-vod-simpleaes.star`, `scripts/aliyun-hls-standard.star`. See [scripts/README.md](scripts/README.md) for details.
 
 **Scope:** Supports standard HLS AES-128, Tencent SimpleAES, and Alibaba HLS standard encryption. Does **not** support Alibaba private / License encryption (SDK-only) or commercial DRM (FairPlay / Widevine).
 
@@ -180,6 +192,8 @@ See [scripts/README.md](scripts/README.md) for hook APIs, JSON protocol, and exa
 Run `m3u8 serve` to start an HTTP API server for parsing playlists, creating async download tasks, polling progress, and downloading finished files.
 
 The server auto-loads `decrypt.yaml` from the working directory if present (same script matching as CLI). Pending or running tasks are recovered on restart and resume from existing segments in the task directory.
+
+> Cloud VOD credentials (`-drm-token`, `-pkey`, `-mts-token`) are **CLI-only** and not available via the HTTP API. Use CLI mode for Tencent / Alibaba encrypted sources.
 
 ### Starting the Server
 
@@ -264,6 +278,13 @@ curl -X DELETE http://localhost:8080/api/v1/tasks/<taskID>
 ```
 
 When auth is enabled, add `-H "X-API-Key: your-secret-key"` to the requests above.
+
+### Parse Request Body
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `url` | string | M3U8 URL (**required**) |
+| `proxy` | string | HTTP proxy URL |
 
 ### Create Task Request Body
 

@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/github/license/0377/m3u8)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/0377/m3u8)](https://github.com/0377/m3u8/releases)
 
-基于 Go 的轻量级 M3U8 下载工具。支持解析 HLS 播放列表、并发下载 TS 分片、AES-128 解密、合并为单个文件，并可通过 ffmpeg 封装为 MP4。
+基于 Go 的轻量级 M3U8 下载工具（v1.3.0）。支持解析 HLS 播放列表、并发下载 TS 分片、AES-128 与云点播加密解密、合并为单个文件，并可通过 ffmpeg 封装为 MP4。
 
 提供两种使用方式：
 
@@ -22,6 +22,7 @@
 - 单分片失败自动重试
 - 分片级断点续传（相同 `-u`、`-o`、`-f` 重跑自动跳过已完成分片）
 - AES-128 分片解密
+- 内置云点播解密（腾讯云 SimpleAES、阿里云 HLS 标准加密）
 - 解密脚本支持（Starlark / 外部进程，配置文件 `decrypt.yaml`）
 - 合并 TS 分片为单个文件
 - 通过 ffmpeg 封装为 MP4（流复制，不重新编码）
@@ -130,13 +131,20 @@ Windows PowerShell：
 
 ## 云点播加密
 
-工具内置腾讯云 SimpleAES 与阿里云 HLS 标准加密的 URL 预处理与 Key 二次解密。凭证通过 CLI 参数手动传入，不写入配置文件。
+工具内置腾讯云 SimpleAES 与阿里云 HLS 标准加密的 URL 预处理与 Key 二次解密。检测到云点播特征时自动启用内置 Provider，**通常无需** `-decrypt-script`。
+
+| Provider | 自动检测（满足其一） | Key 处理 |
+|----------|---------------------|----------|
+| 腾讯云 SimpleAES | M3U8 域名为 `*.vod2.myqcloud.com`；或 key URI 含 `drm.vod2.myqcloud.com` 且 `drmType=SimpleAES` | `SHA256(pkey)` → AES-CBC（零 IV）解密密文 key |
+| 阿里云 HLS 标准加密 | M3U8 URL 含 `MtsHlsUriToken=`；或 key URI 含 `Ciphertext=` | 响应为 16 字节二进制或 Base64 文本 → 16 字节 AES key |
+
+凭证通过 CLI 参数手动传入，不写入配置文件或 `decrypt.yaml`。
 
 | 参数 | 说明 |
 |------|------|
-| `-drm-token` | 腾讯云 DrmToken |
+| `-drm-token` | 腾讯云 DrmToken（在 M3U8 路径中插入 `voddrm.token.{token}`） |
 | `-pkey` | 腾讯云 SimpleAES 播放密钥 |
-| `-mts-token` | 阿里云 MtsHlsUriToken |
+| `-mts-token` | 阿里云 `MtsHlsUriToken`（拼接到 M3U8 URL 查询参数） |
 
 ```bash
 # 腾讯云 SimpleAES
@@ -148,6 +156,10 @@ Windows PowerShell：
 ./m3u8 -u "https://example.aliyundoc.com/test.m3u8?MediaId=xxx" \
   -mts-token "your-token"
 ```
+
+Key Hook 优先级：**显式 `-decrypt-script` > 内置 Provider > `decrypt.yaml` / 自动发现脚本 > 原始 key**。指定 `-decrypt-script` 时，内置 Provider 的 Key 处理让位于脚本；URL 预处理（`-drm-token` / `-mts-token`）仍会执行。
+
+调试参考脚本：`scripts/tencent-vod-simpleaes.star`、`scripts/aliyun-hls-standard.star`。详见 [scripts/README.md](scripts/README.md)。
 
 **能力边界：** 支持标准 HLS AES-128、腾讯云 SimpleAES、阿里云 HLS 标准加密。不支持阿里云私有加密 / License 加密（SDK 专有），也不支持 FairPlay / Widevine 等商业 DRM。
 
@@ -180,6 +192,8 @@ Windows PowerShell：
 通过 `m3u8 serve` 启动 HTTP API 服务，支持解析 M3U8、创建异步下载任务、查询进度与下载成品文件。
 
 服务启动时会自动加载工作目录下的 `decrypt.yaml`（脚本匹配规则与 CLI 一致）。重启后 pending / running 状态的任务会自动恢复，并从任务目录中已有分片继续下载。
+
+> 云点播凭证（`-drm-token`、`-pkey`、`-mts-token`）**仅支持 CLI**，HTTP API 暂不支持。下载腾讯云 / 阿里云加密资源请使用 CLI 模式。
 
 ### 启动服务
 
@@ -264,6 +278,13 @@ curl -X DELETE http://localhost:8080/api/v1/tasks/<taskID>
 ```
 
 启用认证时，在上述请求中增加 `-H "X-API-Key: your-secret-key"`。
+
+### 解析请求体
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `url` | string | M3U8 地址（**必填**） |
+| `proxy` | string | HTTP 代理地址 |
 
 ### 创建任务请求体
 
