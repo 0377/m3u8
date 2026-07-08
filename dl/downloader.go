@@ -184,6 +184,9 @@ func (d *Downloader) download(segIndex int) error {
 	if _, err := w.Write(bytes); err != nil {
 		return fmt.Errorf("write to %s: %s", fTemp, err.Error())
 	}
+	if err := w.Flush(); err != nil {
+		return fmt.Errorf("flush %s: %s", fTemp, err.Error())
+	}
 	// Release file resource to rename file
 	_ = f.Close()
 	if err = os.Rename(fTemp, fPath); err != nil {
