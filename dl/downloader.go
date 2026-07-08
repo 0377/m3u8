@@ -23,14 +23,17 @@ const (
 )
 
 type Downloader struct {
-	lock     sync.Mutex
-	queue    []int
-	folder   string
-	tsFolder string
-	outputTS string
+	lock      sync.Mutex
+	queue     []int
+	folder    string
+	tsFolder  string
+	outputTS  string
 	outputMP4 string
-	finish   int32
-	segLen   int
+	retries   map[int]int
+	failed    map[int]struct{}
+	maxRetry  int
+	finish    int32
+	segLen    int
 
 	result *parse.Result
 }
@@ -43,15 +46,12 @@ func NewTask(output string, url string, filename string) (*Downloader, error) {
 		return nil, err
 	}
 	var folder string
-	// If no output folder specified, use current directory
 	if output == "" {
-		current, err := tool.CurrentDir()
-		if err != nil {
-			return nil, err
-		}
-		folder = filepath.Join(current, output)
-	} else {
-		folder = output
+		output = "."
+	}
+	folder, err = filepath.Abs(output)
+	if err != nil {
+		return nil, fmt.Errorf("resolve output folder failed: %s", err.Error())
 	}
 	if err := os.MkdirAll(folder, os.ModePerm); err != nil {
 		return nil, fmt.Errorf("create storage folder failed: %s", err.Error())
@@ -69,6 +69,8 @@ func NewTask(output string, url string, filename string) (*Downloader, error) {
 		tsFolder:  tsFolder,
 		outputTS:  tsPath,
 		outputMP4: mp4Path,
+		retries:   make(map[int]int),
+		failed:    make(map[int]struct{}),
 		result:    result,
 	}
 	d.segLen = len(result.M3u8.Segments)
@@ -77,7 +79,8 @@ func NewTask(output string, url string, filename string) (*Downloader, error) {
 }
 
 // Start runs downloader. When toMP4 is true, merged TS is converted to MP4 via ffmpeg.
-func (d *Downloader) Start(concurrency int, toMP4 bool) error {
+func (d *Downloader) Start(concurrency int, toMP4 bool, maxRetry int) error {
+	d.maxRetry = maxRetry
 	var wg sync.WaitGroup
 	// struct{} zero size
 	limitChan := make(chan struct{}, concurrency)
@@ -93,10 +96,9 @@ func (d *Downloader) Start(concurrency int, toMP4 bool) error {
 		go func(idx int) {
 			defer wg.Done()
 			if err := d.download(idx); err != nil {
-				// Back into the queue, retry request
 				fmt.Printf("[failed] %s\n", err.Error())
-				if err := d.back(idx); err != nil {
-					fmt.Printf(err.Error())
+				if backErr := d.back(idx); backErr != nil {
+					fmt.Printf("[give up] segment %d: %s\n", idx, backErr.Error())
 				}
 			}
 			<-limitChan
@@ -104,6 +106,9 @@ func (d *Downloader) Start(concurrency int, toMP4 bool) error {
 		limitChan <- struct{}{}
 	}
 	wg.Wait()
+	if len(d.failed) > 0 {
+		return fmt.Errorf("%d segments failed after %d retries", len(d.failed), maxRetry)
+	}
 	if err := d.merge(); err != nil {
 		return err
 	}
@@ -182,6 +187,10 @@ func (d *Downloader) next() (segIndex int, end bool, err error) {
 			end = true
 			return
 		}
+		if int(d.finish)+len(d.failed) == d.segLen {
+			end = true
+			return
+		}
 		// Some segment indexes are still running.
 		end = false
 		return
@@ -197,6 +206,17 @@ func (d *Downloader) back(segIndex int) error {
 	if sf := d.result.M3u8.Segments[segIndex]; sf == nil {
 		return fmt.Errorf("invalid segment index: %d", segIndex)
 	}
+	if _, givenUp := d.failed[segIndex]; givenUp {
+		return fmt.Errorf("segment %d already given up", segIndex)
+	}
+
+	d.retries[segIndex]++
+	if d.retries[segIndex] > d.maxRetry {
+		d.failed[segIndex] = struct{}{}
+		return fmt.Errorf("exceeded max retries (%d)", d.maxRetry)
+	}
+
+	fmt.Printf("[retry %d/%d] segment %d\n", d.retries[segIndex], d.maxRetry, segIndex)
 	d.queue = append(d.queue, segIndex)
 	return nil
 }
