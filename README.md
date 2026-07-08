@@ -117,6 +117,9 @@ Windows PowerShell:
 | `-decrypt-script` | | Decrypt script path (`.star` or `.py`) |
 | `-decrypt-config` | `decrypt.yaml` | Decrypt config file path |
 | `-scripts-dir` | `scripts` | Decrypt script library directory |
+| `-drm-token` | | Tencent Cloud DrmToken (SimpleAES) |
+| `-pkey` | | Tencent Cloud SimpleAES playback key |
+| `-mts-token` | | Alibaba Cloud MtsHlsUriToken |
 | `-h` | | Show help |
 
 > VOD playlists only. Some sources rate-limit requests — lower `-c` or raise `-r` as needed.
@@ -124,6 +127,29 @@ Windows PowerShell:
 > When `-proxy` is not set, `HTTP_PROXY` / `HTTPS_PROXY` environment variables are used automatically.
 >
 > To resume an interrupted download, re-run with the same `-u`, `-o`, and `-f`. Completed segments in `ts/` are reused automatically.
+
+## Cloud VOD Encryption
+
+Built-in support for Tencent Cloud SimpleAES and Alibaba Cloud HLS standard encryption, including URL preprocessing and secondary key decryption. Credentials are passed via CLI flags only — not stored in config files.
+
+| Flag | Description |
+|------|-------------|
+| `-drm-token` | Tencent Cloud DrmToken |
+| `-pkey` | Tencent Cloud SimpleAES playback key |
+| `-mts-token` | Alibaba Cloud MtsHlsUriToken |
+
+```bash
+# Tencent Cloud SimpleAES
+./m3u8 -u "https://1500014561.vod2.myqcloud.com/.../adp.12.m3u8?t=...&sign=..." \
+  -drm-token "eyJhbGci..." \
+  -pkey "JduzsUuRvGVPRHvIYwLv"
+
+# Alibaba Cloud HLS standard encryption
+./m3u8 -u "https://example.aliyundoc.com/test.m3u8?MediaId=xxx" \
+  -mts-token "your-token"
+```
+
+**Scope:** Supports standard HLS AES-128, Tencent SimpleAES, and Alibaba HLS standard encryption. Does **not** support Alibaba private / License encryption (SDK-only) or commercial DRM (FairPlay / Widevine).
 
 ## Decrypt Scripts
 

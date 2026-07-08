@@ -43,6 +43,9 @@ func RunDownload(args []string) {
 		decryptScript string
 		decryptConfig string
 		scriptsDir    string
+		drmToken      string
+		pkey          string
+		mtsToken      string
 	)
 
 	fs.StringVar(&url, "u", "", "M3U8 地址（必填）")
@@ -58,6 +61,9 @@ func RunDownload(args []string) {
 	fs.StringVar(&decryptScript, "decrypt-script", "", "解密脚本路径（.star 或 .py）")
 	fs.StringVar(&decryptConfig, "decrypt-config", "decrypt.yaml", "解密配置文件路径")
 	fs.StringVar(&scriptsDir, "scripts-dir", "scripts", "解密脚本库目录")
+	fs.StringVar(&drmToken, "drm-token", "", "腾讯云 DrmToken（SimpleAES）")
+	fs.StringVar(&pkey, "pkey", "", "腾讯云 SimpleAES 播放密钥")
+	fs.StringVar(&mtsToken, "mts-token", "", "阿里云 MtsHlsUriToken")
 	fs.BoolVar(&showHelp, "h", false, "显示帮助信息")
 	fs.BoolVar(&showHelp, "help", false, "显示帮助信息")
 	fs.Usage = func() { downloadUsage(fs) }
@@ -94,6 +100,11 @@ func RunDownload(args []string) {
 		DecryptScript: decryptScript,
 		DecryptConfig: decryptConfig,
 		ScriptsDir:    scriptsDir,
+		ProviderParams: crypt.ProviderParams{
+			DrmToken: drmToken,
+			Pkey:     pkey,
+			MtsToken: mtsToken,
+		},
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "错误: %v\n", err)
@@ -140,6 +151,9 @@ func downloadUsage(fs *flag.FlagSet) {
   m3u8 -u https://self-signed.example.com/index.m3u8 -k
   m3u8 -u https://example.com/index.m3u8 -decrypt-script scripts/custom.star
   m3u8 -u https://example.com/index.m3u8 -decrypt-config decrypt.yaml -scripts-dir scripts
+  m3u8 -u "https://1500014561.vod2.myqcloud.com/.../adp.12.m3u8?t=...&sign=..." \
+       -drm-token "eyJhbGci..." -pkey "JduzsUuRvGVPRHvIYwLv"
+  m3u8 -u "https://example.aliyundoc.com/test.m3u8?MediaId=xxx" -mts-token "your-token"
 
 说明:
   - 仅支持 VOD 类型 M3U8
@@ -151,5 +165,7 @@ func downloadUsage(fs *flag.FlagSet) {
   - 未指定 -proxy 时，自动读取 HTTP_PROXY / HTTPS_PROXY 环境变量
   - -decrypt-script 指定解密脚本；-decrypt-config 指定解密配置（默认 decrypt.yaml）
   - -scripts-dir 指定脚本库目录（默认 scripts），按 METHOD/域名自动匹配
+  - -drm-token / -pkey 用于腾讯云 SimpleAES；-mts-token 用于阿里云 HLS 标准加密
+  - 不支持阿里云私有加密/License 加密及商业 DRM（FairPlay / Widevine）
 `)
 }

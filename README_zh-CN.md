@@ -117,6 +117,9 @@ Windows PowerShell：
 | `-decrypt-script` | | 解密脚本路径（`.star` 或 `.py`） |
 | `-decrypt-config` | `decrypt.yaml` | 解密配置文件路径 |
 | `-scripts-dir` | `scripts` | 解密脚本库目录 |
+| `-drm-token` | | 腾讯云 DrmToken（SimpleAES） |
+| `-pkey` | | 腾讯云 SimpleAES 播放密钥 |
+| `-mts-token` | | 阿里云 MtsHlsUriToken |
 | `-h` | | 显示帮助信息 |
 
 > 仅支持 VOD 类型。部分链接限制请求频率，可适当调低 `-c` 或提高 `-r`。
@@ -124,6 +127,29 @@ Windows PowerShell：
 > 未指定 `-proxy` 时，自动读取 `HTTP_PROXY` / `HTTPS_PROXY` 环境变量。
 >
 > 中断后使用相同的 `-u`、`-o`、`-f` 重新运行即可续传，`ts/` 中已完成的分片会自动复用。
+
+## 云点播加密
+
+工具内置腾讯云 SimpleAES 与阿里云 HLS 标准加密的 URL 预处理与 Key 二次解密。凭证通过 CLI 参数手动传入，不写入配置文件。
+
+| 参数 | 说明 |
+|------|------|
+| `-drm-token` | 腾讯云 DrmToken |
+| `-pkey` | 腾讯云 SimpleAES 播放密钥 |
+| `-mts-token` | 阿里云 MtsHlsUriToken |
+
+```bash
+# 腾讯云 SimpleAES
+./m3u8 -u "https://1500014561.vod2.myqcloud.com/.../adp.12.m3u8?t=...&sign=..." \
+  -drm-token "eyJhbGci..." \
+  -pkey "JduzsUuRvGVPRHvIYwLv"
+
+# 阿里云 HLS 标准加密
+./m3u8 -u "https://example.aliyundoc.com/test.m3u8?MediaId=xxx" \
+  -mts-token "your-token"
+```
+
+**能力边界：** 支持标准 HLS AES-128、腾讯云 SimpleAES、阿里云 HLS 标准加密。不支持阿里云私有加密 / License 加密（SDK 专有），也不支持 FairPlay / Widevine 等商业 DRM。
 
 ## 解密脚本
 
