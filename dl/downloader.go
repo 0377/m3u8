@@ -120,7 +120,7 @@ func NewTask(output string, url string, filename string, httpCfg *tool.HTTPConfi
 	if existingMeta == nil && len(completed) > 0 {
 		fmt.Printf("[info] 未发现任务元数据，创建新任务（ts/ 中已有 %d 个分片将被复用）\n", len(completed))
 	}
-	if len(completed) > 0 {
+	if existingMeta != nil && len(completed) > 0 {
 		fmt.Printf("[resume] 已完成 %d/%d 分片，继续下载剩余 %d 个\n", len(completed), segLen, segLen-len(completed))
 	}
 
@@ -357,14 +357,16 @@ func (d *Downloader) merge() error {
 		}
 	}
 	_ = writer.Flush()
-	// Remove `ts` folder
-	_ = os.RemoveAll(d.tsFolder)
-	if err := RemoveTaskMeta(d.folder); err != nil {
-		return fmt.Errorf("remove task meta failed: %w", err)
-	}
 
 	if mergedCount != d.segLen {
 		fmt.Printf("[warning] \n%d files merge failed", d.segLen-mergedCount)
+		return fmt.Errorf("%d files merge failed", d.segLen-mergedCount)
+	}
+
+	// Remove `ts` folder and task meta only after successful merge
+	_ = os.RemoveAll(d.tsFolder)
+	if err := RemoveTaskMeta(d.folder); err != nil {
+		return fmt.Errorf("remove task meta failed: %w", err)
 	}
 
 	fmt.Printf("\n[output] %s\n", mFilePath)
