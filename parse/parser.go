@@ -96,7 +96,11 @@ func FromURL(link string, httpCfg *tool.HTTPConfig, cryptSvc *crypt.Service) (*R
 		} else {
 			iv := []byte(nil)
 			if key.IV != "" {
-				iv = []byte(key.IV)
+				var ivErr error
+				iv, ivErr = crypt.IVFromMeta(&crypt.KeyMeta{IV: key.IV})
+				if ivErr != nil {
+					return nil, ivErr
+				}
 			}
 			result.Keys[idx] = crypt.KeyMaterial{Key: keyByte, IV: iv}
 		}

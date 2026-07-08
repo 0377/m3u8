@@ -45,6 +45,8 @@ type Segment struct {
 	Duration float32 // #EXTINF: duration,<title>
 	Length   uint64  // #EXT-X-BYTERANGE: length[@offset]
 	Offset   uint64  // #EXT-X-BYTERANGE: length[@offset]
+
+	byteRangeOffsetSet bool // true when @offset was present in the tag
 }
 
 // #EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=240000,RESOLUTION=416x234,CODECS="avc1.42e00a,mp4a.40.2"
@@ -174,6 +176,7 @@ func parse(reader io.Reader) (*M3u8, error) {
 					return nil, err
 				}
 				seg.Offset = uint64(offset)
+				seg.byteRangeOffsetSet = true
 				b = split[0]
 			}
 			length, err := strconv.ParseUint(b, 10, 64)
@@ -184,7 +187,7 @@ func parse(reader io.Reader) (*M3u8, error) {
 			extByte = true
 		// Parse segments URI
 		case !strings.HasPrefix(line, "#"):
-			if extInf {
+			if extInf || extByte {
 				if seg == nil {
 					return nil, fmt.Errorf("invalid line: %s", line)
 				}
@@ -208,14 +211,34 @@ func parse(reader io.Reader) (*M3u8, error) {
 			key.URI = params["URI"]
 			key.IV = params["IV"]
 			m3u8.Keys[keyIndex] = key
-		case line == "#EndList":
+		case line == "#EXT-X-ENDLIST":
 			m3u8.EndList = true
 		default:
 			continue
 		}
 	}
 
+	resolveByteRangeOffsets(m3u8.Segments)
 	return m3u8, nil
+}
+
+// resolveByteRangeOffsets fills implicit byte-range offsets per HLS spec:
+// when @offset is omitted, offset is the end of the prior range on the same URI.
+func resolveByteRangeOffsets(segments []*Segment) {
+	lastEndByURI := make(map[string]uint64)
+	for _, seg := range segments {
+		if seg.Length == 0 {
+			continue
+		}
+		if !seg.byteRangeOffsetSet {
+			if end, ok := lastEndByURI[seg.URI]; ok {
+				seg.Offset = end
+			} else {
+				seg.Offset = 0
+			}
+		}
+		lastEndByURI[seg.URI] = seg.Offset + seg.Length
+	}
 }
 
 func parseMasterPlaylist(line string) (*MasterPlaylist, error) {

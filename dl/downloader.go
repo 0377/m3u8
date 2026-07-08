@@ -111,11 +111,7 @@ func NewTaskFromResult(output string, url string, filename string, result *parse
 	if err != nil {
 		return nil, err
 	}
-	if existingMeta == nil {
-		if err := SaveTaskMeta(folder, currentMeta); err != nil {
-			return nil, err
-		}
-	} else {
+	if existingMeta != nil {
 		if err := ValidateTaskMeta(existingMeta, currentMeta); err != nil {
 			return nil, err
 		}
@@ -127,7 +123,16 @@ func NewTaskFromResult(output string, url string, filename string, result *parse
 	}
 
 	if existingMeta == nil && len(completed) > 0 {
-		fmt.Printf("[info] 未发现任务元数据，创建新任务（ts/ 中已有 %d 个分片将被复用）\n", len(completed))
+		fmt.Printf("[resume] 无任务元数据，清理 ts/ 中 %d 个残留分片并重新下载\n", len(completed))
+		if err := wipeTSFolder(tsFolder); err != nil {
+			return nil, err
+		}
+		completed = make(map[int]struct{})
+	}
+	if existingMeta == nil {
+		if err := SaveTaskMeta(folder, currentMeta); err != nil {
+			return nil, err
+		}
 	}
 	if existingMeta != nil && len(completed) > 0 {
 		fmt.Printf("[resume] 已完成 %d/%d 分片，继续下载剩余 %d 个\n", len(completed), segLen, segLen-len(completed))
@@ -152,6 +157,9 @@ func NewTaskFromResult(output string, url string, filename string, result *parse
 
 // Start runs downloader. When toMP4 is true, merged TS is converted to MP4 via ffmpeg.
 func (d *Downloader) Start(concurrency int, toMP4 bool, maxRetry int) error {
+	if concurrency <= 0 {
+		return fmt.Errorf("concurrency must be positive, got %d", concurrency)
+	}
 	if d.cancelled() {
 		return d.cancelCtx.Err()
 	}
@@ -169,6 +177,8 @@ func (d *Downloader) Start(concurrency int, toMP4 bool, maxRetry int) error {
 			if end {
 				break
 			}
+			// Queue empty but workers still running; avoid busy-spin.
+			time.Sleep(10 * time.Millisecond)
 			continue
 		}
 		wg.Add(1)
@@ -214,8 +224,18 @@ func (d *Downloader) download(segIndex int) error {
 		return d.cancelCtx.Err()
 	}
 	tsFilename := tsFilename(segIndex)
+	sf := d.result.M3u8.Segments[segIndex]
+	if sf == nil {
+		return fmt.Errorf("invalid segment index: %d", segIndex)
+	}
 	tsUrl := d.tsURL(segIndex)
-	b, e := tool.Get(tsUrl, d.httpCfg)
+	var b io.ReadCloser
+	var e error
+	if sf.Length > 0 {
+		b, e = tool.GetRange(tsUrl, sf.Offset, sf.Length, d.httpCfg)
+	} else {
+		b, e = tool.Get(tsUrl, d.httpCfg)
+	}
 	if e != nil {
 		return fmt.Errorf("request %s, %s", tsUrl, e.Error())
 	}
@@ -227,19 +247,31 @@ func (d *Downloader) download(segIndex int) error {
 	if err != nil {
 		return fmt.Errorf("create file: %s, %s", tsFilename, err.Error())
 	}
+	success := false
+	defer func() {
+		if !success {
+			_ = f.Close()
+			_ = os.Remove(fTemp)
+		}
+	}()
 	bytes, err := io.ReadAll(b)
 	if err != nil {
 		return fmt.Errorf("read bytes: %s, %s", tsUrl, err.Error())
 	}
-	sf := d.result.M3u8.Segments[segIndex]
-	if sf == nil {
-		return fmt.Errorf("invalid segment index: %d", segIndex)
+	if sf.Length > 0 && uint64(len(bytes)) != sf.Length {
+		return fmt.Errorf("segment %d: expected %d bytes, got %d", segIndex, sf.Length, len(bytes))
 	}
 	keyMat, ok := d.result.Keys[sf.KeyIndex]
 	if ok && len(keyMat.Key) > 0 {
 		iv := keyMat.IV
-		if len(iv) == 0 && d.result.M3u8.Keys[sf.KeyIndex] != nil {
-			iv = []byte(d.result.M3u8.Keys[sf.KeyIndex].IV)
+		if k := d.result.M3u8.Keys[sf.KeyIndex]; k != nil && k.IV != "" {
+			var ivErr error
+			iv, ivErr = crypt.IVFromMeta(&crypt.KeyMeta{IV: k.IV})
+			if ivErr != nil {
+				return fmt.Errorf("decode iv: %s", ivErr.Error())
+			}
+		} else if len(iv) == 0 {
+			iv = nil
 		}
 		ctx := &crypt.Context{
 			M3U8URL:    d.result.URL.String(),
@@ -284,10 +316,13 @@ func (d *Downloader) download(segIndex int) error {
 		return fmt.Errorf("flush %s: %s", fTemp, err.Error())
 	}
 	// Release file resource to rename file
-	_ = f.Close()
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close %s: %s", fTemp, err.Error())
+	}
 	if err = os.Rename(fTemp, fPath); err != nil {
 		return err
 	}
+	success = true
 	// Maybe it will be safer in this way...
 	atomic.AddInt32(&d.finish, 1)
 	d.reportProgress("downloading")

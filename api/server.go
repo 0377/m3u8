@@ -72,8 +72,8 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 // Shutdown gracefully stops the HTTP server and releases manager resources.
 func (s *Server) Shutdown(ctx context.Context) error {
 	err := s.Server.Shutdown(ctx)
-	if closeErr := s.manager.Close(); closeErr != nil && err == nil {
-		err = closeErr
+	if shutdownErr := s.manager.Shutdown(ctx); shutdownErr != nil && err == nil {
+		err = shutdownErr
 	}
 	return err
 }

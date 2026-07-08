@@ -28,9 +28,14 @@ type Manager struct {
 	cryptSvc *crypt.Service
 	mu       sync.Mutex
 	running  int
+	activeSlots int
+	shuttingDown bool
+	shutdownOnce sync.Once
+	workerWg sync.WaitGroup
 	workCh   chan *api.TaskRecord
 	onCancel map[string]context.CancelFunc
 	parsed   sync.Map // taskID -> *parse.Result, populated at Create
+	dispatched sync.Map // taskID -> struct{}, tasks sent to workCh but not yet running
 }
 
 func NewManager(cfg Config) (*Manager, error) {
@@ -64,11 +69,23 @@ func (m *Manager) Create(req *api.CreateTaskRequest, maxRetry int) (*api.TaskRec
 	}
 
 	m.mu.Lock()
-	if m.countRunningLocked() >= m.cfg.MaxTasks {
+	if m.shuttingDown {
+		m.mu.Unlock()
+		return nil, fmt.Errorf("manager is shutting down")
+	}
+	if m.activeSlots >= m.cfg.MaxTasks {
 		m.mu.Unlock()
 		return nil, api.ErrTooManyTasks
 	}
+	m.activeSlots++
 	m.mu.Unlock()
+
+	slotReserved := true
+	defer func() {
+		if slotReserved {
+			m.releaseSlot()
+		}
+	}()
 
 	httpCfg, err := taskHTTPConfig(req.Proxy)
 	if err != nil {
@@ -108,8 +125,20 @@ func (m *Manager) Create(req *api.CreateTaskRequest, maxRetry int) (*api.TaskRec
 		return nil, err
 	}
 
+	slotReserved = false
 	m.parsed.Store(rec.TaskID, result)
-	m.enqueue(rec)
+	if !m.enqueue(rec) {
+		m.takeParsedResult(rec.TaskID)
+		m.mu.Lock()
+		if m.activeSlots > 0 {
+			m.activeSlots--
+		}
+		m.mu.Unlock()
+		rec.Status = api.TaskStatusCancelled
+		rec.UpdatedAt = time.Now().UTC()
+		_ = m.store.Save(rec)
+		return nil, fmt.Errorf("manager is shutting down")
+	}
 	return rec, nil
 }
 
@@ -165,7 +194,19 @@ func (m *Manager) Cancel(taskID string) error {
 	if rec.Status == api.TaskStatusPending {
 		rec.Status = api.TaskStatusCancelled
 	}
-	return m.store.Save(rec)
+	if err := m.store.Save(rec); err != nil {
+		return err
+	}
+
+	m.mu.Lock()
+	_, dispatched := m.dispatched.Load(taskID)
+	_, running := m.onCancel[taskID]
+	m.mu.Unlock()
+	if !dispatched && !running {
+		m.takeParsedResult(taskID)
+		m.releaseSlot()
+	}
+	return nil
 }
 
 func (m *Manager) ToResponse(rec *api.TaskRecord) api.TaskResponse {
@@ -205,6 +246,38 @@ func (m *Manager) Close() error {
 	return nil
 }
 
+// Shutdown cancels running tasks, waits for workers to drain, then closes resources.
+func (m *Manager) Shutdown(ctx context.Context) error {
+	var shutdownErr error
+	m.shutdownOnce.Do(func() {
+		m.mu.Lock()
+		m.shuttingDown = true
+		for _, cancel := range m.onCancel {
+			cancel()
+		}
+		m.mu.Unlock()
+
+		close(m.workCh)
+
+		done := make(chan struct{})
+		go func() {
+			m.workerWg.Wait()
+			close(done)
+		}()
+
+		select {
+		case <-done:
+		case <-ctx.Done():
+			shutdownErr = ctx.Err()
+		}
+
+		if closeErr := m.Close(); closeErr != nil && shutdownErr == nil {
+			shutdownErr = closeErr
+		}
+	})
+	return shutdownErr
+}
+
 func (m *Manager) takeParsedResult(taskID string) *parse.Result {
 	v, ok := m.parsed.LoadAndDelete(taskID)
 	if !ok {
@@ -218,6 +291,8 @@ func (m *Manager) Recover() error {
 	if err != nil {
 		return err
 	}
+
+	var pending []*api.TaskRecord
 	for _, rec := range all {
 		switch rec.Status {
 		case api.TaskStatusRunning:
@@ -226,10 +301,26 @@ func (m *Manager) Recover() error {
 			if err := m.store.Save(rec); err != nil {
 				return err
 			}
-			m.enqueue(rec)
+			pending = append(pending, rec)
 		case api.TaskStatusPending:
-			m.enqueue(rec)
+			pending = append(pending, rec)
 		}
+	}
+
+	m.mu.Lock()
+	m.activeSlots = len(pending)
+	avail := m.cfg.MaxTasks - m.pipelineLocked()
+	if avail < 0 {
+		avail = 0
+	}
+	toEnqueue := avail
+	if toEnqueue > len(pending) {
+		toEnqueue = len(pending)
+	}
+	m.mu.Unlock()
+
+	for i := 0; i < toEnqueue; i++ {
+		m.enqueue(pending[i])
 	}
 	return nil
 }
@@ -264,24 +355,71 @@ func (m *Manager) StartCleanup(interval time.Duration) {
 	}()
 }
 
-func (m *Manager) countRunningLocked() int {
+func (m *Manager) pipelineLocked() int {
+	return m.running + m.countDispatchedLocked()
+}
+
+func (m *Manager) countDispatchedLocked() int {
+	count := 0
+	m.dispatched.Range(func(_, _ any) bool {
+		count++
+		return true
+	})
+	return count
+}
+
+func (m *Manager) releaseSlot() {
+	m.mu.Lock()
+	if m.activeSlots > 0 {
+		m.activeSlots--
+	}
+	m.mu.Unlock()
+	m.dispatchPending()
+}
+
+func (m *Manager) dispatchPending() {
+	m.mu.Lock()
+	if m.shuttingDown {
+		m.mu.Unlock()
+		return
+	}
+	slots := m.cfg.MaxTasks - m.pipelineLocked()
+	m.mu.Unlock()
+	if slots <= 0 {
+		return
+	}
+
 	all, err := m.store.ListAll()
 	if err != nil {
-		return m.running
+		return
 	}
-	count := 0
+
 	for _, rec := range all {
-		if rec.Status == api.TaskStatusRunning {
-			count++
+		if slots <= 0 {
+			return
 		}
+		if rec.Status != api.TaskStatusPending || rec.Cancelled {
+			continue
+		}
+		if _, ok := m.dispatched.Load(rec.TaskID); ok {
+			continue
+		}
+		m.enqueue(rec)
+		slots--
 	}
-	return count
 }
 
 func taskHTTPConfig(proxy string) (*tool.HTTPConfig, error) {
 	return tool.HTTPConfigFrom(nil, "", proxy, false)
 }
 
-func (m *Manager) enqueue(rec *api.TaskRecord) {
+func (m *Manager) enqueue(rec *api.TaskRecord) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.shuttingDown {
+		return false
+	}
+	m.dispatched.Store(rec.TaskID, struct{}{})
 	m.workCh <- rec
+	return true
 }

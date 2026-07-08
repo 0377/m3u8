@@ -9,9 +9,9 @@ var _ Decryptor = (*BuiltinDecryptor)(nil)
 func (d *BuiltinDecryptor) Name() string { return "builtin" }
 
 func (d *BuiltinDecryptor) ProcessKey(_ *Context, rawKey []byte, meta *KeyMeta) ([]byte, []byte, error) {
-	iv := []byte(nil)
-	if meta != nil && meta.IV != "" {
-		iv = []byte(meta.IV)
+	iv, err := IVFromMeta(meta)
+	if err != nil {
+		return nil, nil, err
 	}
 	return rawKey, iv, nil
 }

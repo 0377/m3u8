@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -155,6 +156,30 @@ func TestServerParseAndDownload(t *testing.T) {
 	}
 	if len(body) == 0 {
 		t.Fatal("empty download body")
+	}
+}
+
+func TestServerShutdown(t *testing.T) {
+	dir := t.TempDir()
+	srv, err := api.NewServer(api.ServerConfig{
+		Port:            0,
+		DataDir:         dir,
+		AuthEnabled:     false,
+		MaxTasks:        1,
+		TaskTTL:         time.Hour,
+		CleanupInterval: time.Hour,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	httptestSrv := httptest.NewServer(srv.Handler)
+	defer httptestSrv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		t.Fatalf("Shutdown: %v", err)
 	}
 }
 

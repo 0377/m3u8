@@ -47,9 +47,9 @@ seg0.ts
 	if string(mat.Key) != string(rawKey) {
 		t.Fatalf("key: got %q want %q", mat.Key, rawKey)
 	}
-	wantIV := "0x0102030405060708090a0b0c0d0e0f10"
-	if string(mat.IV) != wantIV {
-		t.Fatalf("iv: got %q want %q", mat.IV, wantIV)
+	wantIV, _ := hex.DecodeString("0102030405060708090a0b0c0d0e0f10")
+	if string(mat.IV) != string(wantIV) {
+		t.Fatalf("iv: got %x want %x", mat.IV, wantIV)
 	}
 }
 

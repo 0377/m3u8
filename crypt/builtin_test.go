@@ -1,6 +1,8 @@
 package crypt
 
 import (
+	"bytes"
+	"encoding/hex"
 	"testing"
 
 	"github.com/0377/m3u8/tool"
@@ -9,7 +11,7 @@ import (
 func TestBuiltinDecryptor_ProcessKey_passthrough(t *testing.T) {
 	d := &BuiltinDecryptor{}
 	raw := []byte("1234567890123456")
-	meta := &KeyMeta{IV: "abcd"}
+	meta := &KeyMeta{IV: "hooked-iv"}
 	key, iv, err := d.ProcessKey(&Context{}, raw, meta)
 	if err != nil {
 		t.Fatal(err)
@@ -19,6 +21,20 @@ func TestBuiltinDecryptor_ProcessKey_passthrough(t *testing.T) {
 	}
 	if string(iv) != meta.IV {
 		t.Fatalf("iv passthrough failed")
+	}
+}
+
+func TestBuiltinDecryptor_ProcessKey_hex_iv(t *testing.T) {
+	d := &BuiltinDecryptor{}
+	raw := []byte("1234567890123456")
+	meta := &KeyMeta{IV: "0x0102030405060708090a0b0c0d0e0f10"}
+	_, iv, err := d.ProcessKey(&Context{}, raw, meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, _ := hex.DecodeString("0102030405060708090a0b0c0d0e0f10")
+	if !bytes.Equal(iv, want) {
+		t.Fatalf("got %x want %x", iv, want)
 	}
 }
 

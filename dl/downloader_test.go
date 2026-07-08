@@ -24,6 +24,19 @@ func TestProgressReporterCalled(t *testing.T) {
 	}
 }
 
+func TestStartInvalidConcurrency(t *testing.T) {
+	d := &Downloader{segLen: 1, finish: 0}
+	for _, c := range []int{0, -1} {
+		err := d.Start(c, false, 0)
+		if err == nil {
+			t.Fatalf("Start(%d) expected error, got nil", c)
+		}
+		if !strings.Contains(err.Error(), "concurrency must be positive") {
+			t.Fatalf("Start(%d) error = %q, want concurrency validation message", c, err.Error())
+		}
+	}
+}
+
 func TestStartRespectsCancel(t *testing.T) {
 	d := &Downloader{segLen: 100, finish: 0}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -121,5 +134,40 @@ func TestResumeSkip_metaMismatch(t *testing.T) {
 	_, err := NewTask(dir, url, "video2", nil, nil)
 	if err == nil {
 		t.Fatal("expected error for filename mismatch")
+	}
+}
+
+func TestNewTask_noMetaStaleTS(t *testing.T) {
+	srv := newVODM3U8Server(t, 3)
+	defer srv.Close()
+
+	dir := t.TempDir()
+	url := srv.URL + "/index.m3u8"
+	tsDir := filepath.Join(dir, tsFolderName)
+	if err := os.MkdirAll(tsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, idx := range []int{0, 1} {
+		fPath := filepath.Join(tsDir, tsFilename(idx))
+		if err := os.WriteFile(fPath, []byte{0x47, 0x00}, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	d, err := NewTask(dir, url, "video", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.queue) != 3 {
+		t.Fatalf("queue len=%d, want 3 (stale segments should be wiped)", len(d.queue))
+	}
+	if got := atomic.LoadInt32(&d.finish); got != 0 {
+		t.Fatalf("finish=%d, want 0", got)
+	}
+	for _, idx := range []int{0, 1, 2} {
+		fPath := filepath.Join(tsDir, tsFilename(idx))
+		if _, err := os.Stat(fPath); !os.IsNotExist(err) {
+			t.Fatalf("expected stale segment %d removed", idx)
+		}
 	}
 }

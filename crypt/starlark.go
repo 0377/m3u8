@@ -243,10 +243,8 @@ func keyResultFields(v starlark.Value) (keyVal, ivVal starlark.Value, ok bool) {
 }
 
 func ivBytes(meta *KeyMeta) []byte {
-	if meta == nil || meta.IV == "" {
-		return nil
-	}
-	return []byte(meta.IV)
+	iv, _ := IVFromMeta(meta)
+	return iv
 }
 
 func metaURI(meta *KeyMeta) string {

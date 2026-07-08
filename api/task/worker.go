@@ -15,19 +15,27 @@ import (
 
 func (m *Manager) StartWorkers(n int) {
 	for i := 0; i < n; i++ {
-		go m.workerLoop()
+		m.workerWg.Add(1)
+		go func() {
+			defer m.workerWg.Done()
+			m.workerLoop()
+		}()
 	}
 }
 
 func (m *Manager) workerLoop() {
 	for rec := range m.workCh {
+		m.dispatched.Delete(rec.TaskID)
+
 		if fresh, err := m.store.Load(rec.TaskID); err == nil {
 			if fresh.Cancelled {
+				m.takeParsedResult(rec.TaskID)
 				if fresh.Status == api.TaskStatusPending {
 					fresh.Status = api.TaskStatusCancelled
 					fresh.UpdatedAt = time.Now().UTC()
 					_ = m.store.Save(fresh)
 				}
+				m.releaseSlot()
 				continue
 			}
 			rec = fresh
@@ -38,9 +46,11 @@ func (m *Manager) workerLoop() {
 
 func (m *Manager) runTask(rec *api.TaskRecord) {
 	if rec.Cancelled {
+		m.takeParsedResult(rec.TaskID)
 		rec.Status = api.TaskStatusCancelled
 		rec.UpdatedAt = time.Now().UTC()
 		_ = m.store.Save(rec)
+		m.releaseSlot()
 		return
 	}
 
@@ -56,6 +66,7 @@ func (m *Manager) runTask(rec *api.TaskRecord) {
 		m.running--
 		delete(m.onCancel, rec.TaskID)
 		m.mu.Unlock()
+		m.releaseSlot()
 	}()
 
 	rec.Status = api.TaskStatusRunning
@@ -66,6 +77,7 @@ func (m *Manager) runTask(rec *api.TaskRecord) {
 	taskDir := m.store.TaskDir(rec.TaskID)
 	httpCfg, err := taskHTTPConfig(rec.Proxy)
 	if err != nil {
+		m.takeParsedResult(rec.TaskID)
 		m.failTask(rec, err.Error())
 		return
 	}
@@ -106,6 +118,14 @@ func (m *Manager) runTask(rec *api.TaskRecord) {
 		} else {
 			m.failTask(rec, err.Error())
 		}
+		return
+	}
+
+	if fresh, err := m.store.Load(rec.TaskID); err == nil {
+		rec = fresh
+	}
+	if rec.Cancelled {
+		m.cancelTask(rec)
 		return
 	}
 

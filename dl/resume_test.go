@@ -44,6 +44,59 @@ func TestScanCompletedSegments(t *testing.T) {
 	}
 }
 
+func TestScanCompletedSegments_emptyFile(t *testing.T) {
+	dir := t.TempDir()
+	tsFolder := filepath.Join(dir, tsFolderName)
+	if err := os.MkdirAll(tsFolder, 0755); err != nil {
+		t.Fatal(err)
+	}
+	f := filepath.Join(tsFolder, tsFilename(0))
+	if err := os.WriteFile(f, []byte{}, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	completed, err := scanCompletedSegments(tsFolder, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(completed) != 0 {
+		t.Fatalf("expected 0 completed, got %d", len(completed))
+	}
+	if _, err := os.Stat(f); !os.IsNotExist(err) {
+		t.Fatal("expected empty file removed")
+	}
+}
+
+func TestScanCompletedSegments_invalidSyncByte(t *testing.T) {
+	dir := t.TempDir()
+	tsFolder := filepath.Join(dir, tsFolderName)
+	if err := os.MkdirAll(tsFolder, 0755); err != nil {
+		t.Fatal(err)
+	}
+	f := filepath.Join(tsFolder, tsFilename(0))
+	tmp := f + tsTempFileSuffix
+	if err := os.WriteFile(f, []byte{0x00, 0x01, 0x02}, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tmp, []byte("partial"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	completed, err := scanCompletedSegments(tsFolder, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(completed) != 0 {
+		t.Fatalf("expected 0 completed, got %d", len(completed))
+	}
+	if _, err := os.Stat(f); !os.IsNotExist(err) {
+		t.Fatal("expected invalid file removed")
+	}
+	if _, err := os.Stat(tmp); !os.IsNotExist(err) {
+		t.Fatal("expected tmp sibling removed")
+	}
+}
+
 func TestBuildQueue(t *testing.T) {
 	completed := map[int]struct{}{0: {}, 2: {}}
 	queue := buildQueue(4, completed)

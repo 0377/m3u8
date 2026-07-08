@@ -1,16 +1,14 @@
-package provider
+package crypt
 
 import (
 	"bytes"
 	"encoding/hex"
 	"testing"
-
-	"github.com/0377/m3u8/crypt"
 )
 
-func TestIvFromMeta_hex_with_prefix(t *testing.T) {
-	meta := &crypt.KeyMeta{IV: "0x0102030405060708090a0b0c0d0e0f10"}
-	got, err := ivFromMeta(meta)
+func TestIVFromMeta_hex_with_prefix(t *testing.T) {
+	meta := &KeyMeta{IV: "0x0102030405060708090a0b0c0d0e0f10"}
+	got, err := IVFromMeta(meta)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -20,9 +18,9 @@ func TestIvFromMeta_hex_with_prefix(t *testing.T) {
 	}
 }
 
-func TestIvFromMeta_raw_string_fallback(t *testing.T) {
-	meta := &crypt.KeyMeta{IV: "hooked-iv"}
-	got, err := ivFromMeta(meta)
+func TestIVFromMeta_raw_string_fallback(t *testing.T) {
+	meta := &KeyMeta{IV: "hooked-iv"}
+	got, err := IVFromMeta(meta)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,8 +29,8 @@ func TestIvFromMeta_raw_string_fallback(t *testing.T) {
 	}
 }
 
-func TestIvFromMeta_empty(t *testing.T) {
-	got, err := ivFromMeta(nil)
+func TestIVFromMeta_empty(t *testing.T) {
+	got, err := IVFromMeta(nil)
 	if err != nil {
 		t.Fatal(err)
 	}

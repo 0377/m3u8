@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -23,6 +24,7 @@ type TaskManager interface {
 	ToResponse(rec *TaskRecord) TaskResponse
 	TaskDir(taskID string) string
 	CryptService() *crypt.Service
+	Shutdown(ctx context.Context) error
 	Close() error
 }
 

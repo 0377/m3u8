@@ -106,6 +106,41 @@ func HTTPConfigFrom(headers map[string]string, cookie, proxy string, insecureTLS
 	}, nil
 }
 
+// GetRange performs an HTTP GET with a Range header: bytes=offset-(offset+length-1).
+func GetRange(url string, offset, length uint64, cfg *HTTPConfig) (io.ReadCloser, error) {
+	if length == 0 {
+		return Get(url, cfg)
+	}
+	var client *http.Client
+	if cfg == nil {
+		client = defaultClient()
+	} else {
+		var err error
+		client, err = cfg.client()
+		if err != nil {
+			return nil, err
+		}
+	}
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	if cfg != nil {
+		cfg.applyRequest(req)
+	}
+	rangeEnd := offset + length - 1
+	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", offset, rangeEnd))
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusPartialContent {
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("http error: expected 206 Partial Content, got %d", resp.StatusCode)
+	}
+	return resp.Body, nil
+}
+
 // Get performs an HTTP GET with optional client configuration.
 func Get(url string, cfg *HTTPConfig) (io.ReadCloser, error) {
 	var client *http.Client

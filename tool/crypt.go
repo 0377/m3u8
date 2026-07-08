@@ -29,13 +29,22 @@ func AES128Decrypt(crypted, key, iv []byte) ([]byte, error) {
 		return nil, err
 	}
 	blockSize := block.BlockSize()
+	if len(crypted)%blockSize != 0 {
+		return nil, fmt.Errorf("ciphertext length %d is not a multiple of block size", len(crypted))
+	}
 	if len(iv) == 0 {
 		iv = key
+	}
+	if len(iv) != blockSize {
+		return nil, fmt.Errorf("iv length %d must be %d bytes", len(iv), blockSize)
 	}
 	blockMode := cipher.NewCBCDecrypter(block, iv[:blockSize])
 	origData := make([]byte, len(crypted))
 	blockMode.CryptBlocks(origData, crypted)
-	origData = pkcs5UnPadding(origData)
+	origData, err = pkcs5UnPadding(origData, blockSize)
+	if err != nil {
+		return nil, err
+	}
 	return origData, nil
 }
 
@@ -45,10 +54,21 @@ func pkcs5Padding(cipherText []byte, blockSize int) []byte {
 	return append(cipherText, padText...)
 }
 
-func pkcs5UnPadding(origData []byte) []byte {
+func pkcs5UnPadding(origData []byte, blockSize int) ([]byte, error) {
 	length := len(origData)
+	if length == 0 {
+		return nil, fmt.Errorf("pkcs5 unpadding: empty input")
+	}
 	unPadding := int(origData[length-1])
-	return origData[:(length - unPadding)]
+	if unPadding == 0 || unPadding > blockSize || unPadding > length {
+		return nil, fmt.Errorf("pkcs5 unpadding: invalid padding byte %d", unPadding)
+	}
+	for i := length - unPadding; i < length; i++ {
+		if int(origData[i]) != unPadding {
+			return nil, fmt.Errorf("pkcs5 unpadding: inconsistent padding bytes")
+		}
+	}
+	return origData[:(length - unPadding)], nil
 }
 
 // AES128CBCDecryptRaw decrypts one or more AES-CBC blocks without PKCS7 unpadding.

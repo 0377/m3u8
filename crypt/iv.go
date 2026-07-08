@@ -1,13 +1,13 @@
-package provider
+package crypt
 
 import (
 	"encoding/hex"
 	"strings"
-
-	"github.com/0377/m3u8/crypt"
 )
 
-func ivFromMeta(meta *crypt.KeyMeta) ([]byte, error) {
+// IVFromMeta decodes IV from KeyMeta. Hex strings with optional 0x prefix are
+// decoded; otherwise the IV string is used as raw bytes (builtin/Starlark fallback).
+func IVFromMeta(meta *KeyMeta) ([]byte, error) {
 	if meta == nil || meta.IV == "" {
 		return nil, nil
 	}
@@ -18,6 +18,5 @@ func ivFromMeta(meta *crypt.KeyMeta) ([]byte, error) {
 	if b, err := hex.DecodeString(s); err == nil {
 		return b, nil
 	}
-	// Fallback: match builtin/Starlark ivBytes (raw IV string bytes).
 	return []byte(meta.IV), nil
 }

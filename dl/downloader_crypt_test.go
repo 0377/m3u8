@@ -2,6 +2,7 @@ package dl
 
 import (
 	"bytes"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -51,6 +52,55 @@ seg0.ts
 
 	outDir := t.TempDir()
 	d, err := NewTask(outDir, srv.URL+"/playlist.m3u8", "test", nil, svc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.download(0); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(outDir, tsFolderName, tsFilename(0)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(plain) {
+		t.Fatalf("decrypted segment: got %q want %q", got, plain)
+	}
+}
+
+func TestDownload_aes128_hex_iv_without_cryptSvc(t *testing.T) {
+	plain := append([]byte{0x47}, bytes.Repeat([]byte("hello"), 1000)...)
+	key := []byte("1234567890123456")
+	iv, _ := hex.DecodeString("0102030405060708090a0b0c0d0e0f10")
+	enc, err := tool.AES128Encrypt(plain, key, iv)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/playlist.m3u8":
+			_, _ = fmt.Fprintf(w, `#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:10
+#EXT-X-MEDIA-SEQUENCE:0
+#EXT-X-KEY:METHOD=AES-128,URI="key.bin",IV=0x0102030405060708090a0b0c0d0e0f10
+#EXTINF:10.0,
+seg0.ts
+#EXT-X-ENDLIST
+`)
+		case "/key.bin":
+			_, _ = w.Write(key)
+		case "/seg0.ts":
+			_, _ = w.Write(enc)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	outDir := t.TempDir()
+	d, err := NewTask(outDir, srv.URL+"/playlist.m3u8", "test", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

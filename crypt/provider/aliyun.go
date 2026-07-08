@@ -40,7 +40,7 @@ func (d *aliyunDecryptor) ProcessKey(_ *crypt.Context, rawKey []byte, meta *cryp
 	if err != nil {
 		return nil, nil, err
 	}
-	iv, err := ivFromMeta(meta)
+	iv, err := crypt.IVFromMeta(meta)
 	if err != nil {
 		return nil, nil, err
 	}

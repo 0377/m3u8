@@ -43,7 +43,7 @@ func (d *tencentDecryptor) ProcessKey(ctx *crypt.Context, rawKey []byte, meta *c
 	if err != nil {
 		return nil, nil, err
 	}
-	iv, err := ivFromMeta(meta)
+	iv, err := crypt.IVFromMeta(meta)
 	if err != nil {
 		return nil, nil, err
 	}
