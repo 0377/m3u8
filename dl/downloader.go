@@ -67,7 +67,8 @@ func (d *Downloader) reportProgress(message string) {
 		return
 	}
 	if message == "downloading" && done > 0 {
-		fmt.Printf("[download %6.2f%%]\n", float32(done)/float32(d.segLen)*100)
+		tool.DrawProgressBar("download",
+			float32(done)/float32(d.segLen), progressWidth)
 	}
 }
 
