@@ -152,7 +152,10 @@ func TestFromURL_detects_provider_from_key_uri(t *testing.T) {
 		t.Fatal(err)
 	}
 	svc := crypt.NewService(reg, crypt.ServiceProviderOptions{
-		Params: crypt.ProviderParams{Pkey: pkey},
+		Params: crypt.ProviderParams{
+			Pkey:     pkey,
+			DrmToken: "test-drm-token",
+		},
 	})
 
 	keyURI := "/key?host=drm.vod2.myqcloud.com&drmType=SimpleAES&token=abc"
@@ -186,6 +189,40 @@ seg0.ts
 	}
 	if string(mat.Key) != string(wantKey) {
 		t.Fatalf("key: got %x want %x", mat.Key, wantKey)
+	}
+}
+
+func TestFromURL_key_uri_tencent_missing_params(t *testing.T) {
+	reg, err := crypt.NewRegistry(crypt.RegistryOptions{ScriptsDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := crypt.NewService(reg, crypt.ServiceProviderOptions{})
+
+	keyURI := "/key?host=drm.vod2.myqcloud.com&drmType=SimpleAES&token=abc"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/playlist.m3u8" {
+			_, _ = fmt.Fprintf(w, `#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:10
+#EXT-X-MEDIA-SEQUENCE:0
+#EXT-X-KEY:METHOD=AES-128,URI=%q
+#EXTINF:10.0,
+seg0.ts
+#EXT-X-ENDLIST
+`, keyURI)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	_, err = FromURL(srv.URL+"/playlist.m3u8", nil, svc)
+	if err == nil {
+		t.Fatal("expected error for missing tencent credentials")
+	}
+	if !strings.Contains(err.Error(), "-drm-token") || !strings.Contains(err.Error(), "-pkey") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

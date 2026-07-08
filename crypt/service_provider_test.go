@@ -3,6 +3,7 @@ package crypt_test
 import (
 	"bytes"
 	"encoding/hex"
+	"strings"
 	"testing"
 
 	"github.com/0377/m3u8/crypt"
@@ -54,5 +55,21 @@ func TestService_processKey_tencent_provider(t *testing.T) {
 	}
 	if ctx.Params.Pkey != pkey {
 		t.Fatalf("ctx.Params.Pkey: got %q want %q", ctx.Params.Pkey, pkey)
+	}
+}
+
+func TestService_SetActiveProvider_validates_params(t *testing.T) {
+	reg, err := crypt.NewRegistry(crypt.RegistryOptions{ScriptsDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := crypt.NewService(reg, crypt.ServiceProviderOptions{})
+
+	err = svc.SetActiveProvider(provider.IDTencentSimpleAES)
+	if err == nil {
+		t.Fatal("expected validation error")
+	}
+	if !strings.Contains(err.Error(), "-drm-token") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

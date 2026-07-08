@@ -54,7 +54,9 @@ func FromURL(link string, httpCfg *tool.HTTPConfig, cryptSvc *crypt.Service) (*R
 			keyURIs = append(keyURIs, key.URI)
 		}
 		if id := cryptSvc.DetectProviderFromKeyURIs(keyURIs); id != "" {
-			cryptSvc.SetActiveProvider(id)
+			if err := cryptSvc.SetActiveProvider(id); err != nil {
+				return nil, err
+			}
 		}
 	}
 

@@ -27,8 +27,18 @@ func (s *Service) Close() error {
 	return nil
 }
 
-func (s *Service) SetActiveProvider(id string) {
+func (s *Service) SetActiveProvider(id string) error {
+	if id == "" {
+		s.prov.ActiveID = ""
+		return nil
+	}
+	if providerIntegration.ValidateParams != nil {
+		if err := providerIntegration.ValidateParams(id, s.prov.Params); err != nil {
+			return err
+		}
+	}
 	s.prov.ActiveID = id
+	return nil
 }
 
 func (s *Service) DetectProviderFromKeyURIs(uris []string) string {

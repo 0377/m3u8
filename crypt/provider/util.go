@@ -15,5 +15,9 @@ func ivFromMeta(meta *crypt.KeyMeta) ([]byte, error) {
 	if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {
 		s = s[2:]
 	}
-	return hex.DecodeString(s)
+	if b, err := hex.DecodeString(s); err == nil {
+		return b, nil
+	}
+	// Fallback: match builtin/Starlark ivBytes (raw IV string bytes).
+	return []byte(meta.IV), nil
 }
