@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/0377/m3u8/parse"
 	"github.com/0377/m3u8/tool"
@@ -94,6 +95,35 @@ func NewTask(output string, url string, filename string, httpCfg *tool.HTTPConfi
 	if err := os.MkdirAll(tsFolder, os.ModePerm); err != nil {
 		return nil, fmt.Errorf("create ts folder '[%s]' failed: %s", tsFolder, err.Error())
 	}
+	segLen := len(result.M3u8.Segments)
+	currentMeta := NewTaskMeta(url, filename, segLen, time.Now().Format(time.RFC3339))
+
+	existingMeta, err := LoadTaskMeta(folder)
+	if err != nil {
+		return nil, err
+	}
+	if existingMeta == nil {
+		if err := SaveTaskMeta(folder, currentMeta); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := ValidateTaskMeta(existingMeta, currentMeta); err != nil {
+			return nil, err
+		}
+	}
+
+	completed, err := scanCompletedSegments(tsFolder, segLen)
+	if err != nil {
+		return nil, err
+	}
+
+	if existingMeta == nil && len(completed) > 0 {
+		fmt.Printf("[info] 未发现任务元数据，创建新任务（ts/ 中已有 %d 个分片将被复用）\n", len(completed))
+	}
+	if len(completed) > 0 {
+		fmt.Printf("[resume] 已完成 %d/%d 分片，继续下载剩余 %d 个\n", len(completed), segLen, segLen-len(completed))
+	}
+
 	d := &Downloader{
 		folder:    folder,
 		tsFolder:  tsFolder,
@@ -104,8 +134,9 @@ func NewTask(output string, url string, filename string, httpCfg *tool.HTTPConfi
 		result:    result,
 		httpCfg:   httpCfg,
 	}
-	d.segLen = len(result.M3u8.Segments)
-	d.queue = genSlice(d.segLen)
+	d.segLen = segLen
+	d.queue = buildQueue(segLen, completed)
+	atomic.StoreInt32(&d.finish, int32(len(completed)))
 	return d, nil
 }
 
