@@ -4,8 +4,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/0377/m3u8/crypt"
 	"github.com/0377/m3u8/dl"
 	"github.com/0377/m3u8/tool"
 )
@@ -21,8 +24,11 @@ var (
 	toMP4       bool
 	showHelp    bool
 	headerLines headerList
-	cookie      string
-	insecureTLS bool
+	cookie        string
+	insecureTLS   bool
+	decryptScript string
+	decryptConfig string
+	scriptsDir    string
 )
 
 type headerList []string
@@ -46,6 +52,9 @@ func init() {
 	flag.Var(&headerLines, "H", "自定义 HTTP 请求头，格式 \"Key: Value\"，可重复指定")
 	flag.StringVar(&cookie, "cookie", "", "自定义 Cookie 请求头")
 	flag.BoolVar(&insecureTLS, "k", false, "跳过 HTTPS 证书验证（不安全，仅用于自签名证书等场景）")
+	flag.StringVar(&decryptScript, "decrypt-script", "", "解密脚本路径（.star 或 .py）")
+	flag.StringVar(&decryptConfig, "decrypt-config", "decrypt.yaml", "解密配置文件路径")
+	flag.StringVar(&scriptsDir, "scripts-dir", "scripts", "解密脚本库目录")
 	flag.BoolVar(&showHelp, "h", false, "显示帮助信息")
 	flag.BoolVar(&showHelp, "help", false, "显示帮助信息")
 	flag.Usage = usage
@@ -80,7 +89,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	downloader, err := dl.NewTask(output, url, filename, httpCfg, nil)
+	cryptSvc, err := buildCryptService()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "错误: %v\n", err)
+		os.Exit(1)
+	}
+
+	downloader, err := dl.NewTask(output, url, filename, httpCfg, cryptSvc)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "错误: %v\n", err)
 		os.Exit(1)
@@ -90,6 +105,33 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Println("Done!")
+}
+
+func buildCryptService() (*crypt.Service, error) {
+	cfg, err := crypt.LoadConfig(decryptConfig)
+	if err != nil {
+		return nil, err
+	}
+	scriptsDirVal := scriptsDir
+	if cfg != nil && cfg.ScriptsDir != "" {
+		scriptsDirVal = cfg.ScriptsDir
+	}
+	scriptsAbs, _ := filepath.Abs(scriptsDirVal)
+	timeout := 30 * time.Second
+	if cfg != nil && cfg.ExternalTimeout > 0 {
+		timeout = cfg.ExternalTimeout
+	}
+	reg, err := crypt.NewRegistry(crypt.RegistryOptions{
+		ScriptsDir:      scriptsDirVal,
+		ScriptsDirAbs:   scriptsAbs,
+		CLIScript:       decryptScript,
+		Config:          cfg,
+		ExternalTimeout: timeout,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return crypt.NewService(reg), nil
 }
 
 func buildHTTPConfig() (*tool.HTTPConfig, error) {
@@ -123,6 +165,8 @@ func usage() {
   m3u8 -u https://example.com/index.m3u8 -o ./output -f myvideo
   m3u8 -u https://example.com/index.m3u8 -H "Referer: https://example.com/" -cookie "session=abc"
   m3u8 -u https://self-signed.example.com/index.m3u8 -k
+  m3u8 -u https://example.com/index.m3u8 -decrypt-script scripts/custom.star
+  m3u8 -u https://example.com/index.m3u8 -decrypt-config decrypt.yaml -scripts-dir scripts
 
 说明:
   - 仅支持 VOD 类型 M3U8
@@ -130,5 +174,7 @@ func usage() {
   - 转 MP4 需要系统已安装 ffmpeg
   - 部分链接限制请求频率，可适当调低 -c 并发数或提高 -r 重试次数
   - -H 可多次指定自定义请求头；-cookie 设置 Cookie；-k 跳过 HTTPS 证书验证
+  - -decrypt-script 指定解密脚本；-decrypt-config 指定解密配置（默认 decrypt.yaml）
+  - -scripts-dir 指定脚本库目录（默认 scripts），按 METHOD/域名自动匹配
 `)
 }
