@@ -59,6 +59,10 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 	})
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
-	srv := &http.Server{Addr: addr, Handler: r}
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           r,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
 	return &Server{Server: srv, Handler: r}, nil
 }

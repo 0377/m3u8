@@ -2,6 +2,7 @@ package dl
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -37,12 +38,22 @@ type Downloader struct {
 	finish    int32
 	segLen    int
 	reporter  ProgressReporter
+	cancelCtx context.Context
 
 	result *parse.Result
 }
 
 func (d *Downloader) SetProgressReporter(fn ProgressReporter) {
 	d.reporter = fn
+}
+
+// SetCancelContext sets a context for cooperative cancellation during download.
+func (d *Downloader) SetCancelContext(ctx context.Context) {
+	d.cancelCtx = ctx
+}
+
+func (d *Downloader) cancelled() bool {
+	return d.cancelCtx != nil && d.cancelCtx.Err() != nil
 }
 
 func (d *Downloader) reportProgress(message string) {
@@ -98,11 +109,18 @@ func NewTask(output string, url string, filename string) (*Downloader, error) {
 
 // Start runs downloader. When toMP4 is true, merged TS is converted to MP4 via ffmpeg.
 func (d *Downloader) Start(concurrency int, toMP4 bool, maxRetry int) error {
+	if d.cancelled() {
+		return d.cancelCtx.Err()
+	}
 	d.maxRetry = maxRetry
 	var wg sync.WaitGroup
 	// struct{} zero size
 	limitChan := make(chan struct{}, concurrency)
 	for {
+		if d.cancelled() {
+			wg.Wait()
+			return d.cancelCtx.Err()
+		}
 		tsIdx, end, err := d.next()
 		if err != nil {
 			if end {
@@ -124,11 +142,17 @@ func (d *Downloader) Start(concurrency int, toMP4 bool, maxRetry int) error {
 		limitChan <- struct{}{}
 	}
 	wg.Wait()
+	if d.cancelled() {
+		return d.cancelCtx.Err()
+	}
 	if len(d.failed) > 0 {
 		return fmt.Errorf("%d segments failed after %d retries", len(d.failed), maxRetry)
 	}
 	if err := d.merge(); err != nil {
 		return err
+	}
+	if d.cancelled() {
+		return d.cancelCtx.Err()
 	}
 	if toMP4 {
 		if err := tool.ConvertTSToMP4(d.outputTS, d.outputMP4); err != nil {
@@ -139,6 +163,9 @@ func (d *Downloader) Start(concurrency int, toMP4 bool, maxRetry int) error {
 }
 
 func (d *Downloader) download(segIndex int) error {
+	if d.cancelled() {
+		return d.cancelCtx.Err()
+	}
 	tsFilename := tsFilename(segIndex)
 	tsUrl := d.tsURL(segIndex)
 	b, e := tool.Get(tsUrl)
@@ -243,6 +270,9 @@ func (d *Downloader) back(segIndex int) error {
 }
 
 func (d *Downloader) merge() error {
+	if d.cancelled() {
+		return d.cancelCtx.Err()
+	}
 	// In fact, the number of downloaded segments should be equal to number of m3u8 segments
 	missingCount := 0
 	for idx := 0; idx < d.segLen; idx++ {
@@ -268,6 +298,9 @@ func (d *Downloader) merge() error {
 	writer := bufio.NewWriter(mFile)
 	mergedCount := 0
 	for segIndex := 0; segIndex < d.segLen; segIndex++ {
+		if d.cancelled() {
+			return d.cancelCtx.Err()
+		}
 		tsFilename := tsFilename(segIndex)
 		bytes, err := os.ReadFile(filepath.Join(d.tsFolder, tsFilename))
 		_, err = writer.Write(bytes)

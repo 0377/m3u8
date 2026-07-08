@@ -61,7 +61,6 @@ func FromURL(link string) (*Result, error) {
 			if err != nil {
 				return nil, err
 			}
-			fmt.Println("decryption key: ", string(keyByte))
 			result.Keys[idx] = string(keyByte)
 		default:
 			return nil, fmt.Errorf("unknown or unsupported cryption method: %s", key.Method)

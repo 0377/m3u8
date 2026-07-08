@@ -115,7 +115,7 @@ func (m *Manager) List(status string, limit, offset int) ([]*api.TaskRecord, err
 	}
 
 	if offset >= len(filtered) {
-		return nil, nil
+		return []*api.TaskRecord{}, nil
 	}
 	if limit <= 0 {
 		limit = 20

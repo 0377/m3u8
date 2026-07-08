@@ -9,10 +9,10 @@ func init() {
 			MaxTasks: cfg.MaxTasks,
 			TaskTTL:  cfg.TaskTTL,
 		})
+		mgr.StartWorkers(cfg.MaxTasks)
 		if err := mgr.Recover(); err != nil {
 			return nil, err
 		}
-		mgr.StartWorkers(cfg.MaxTasks)
 		mgr.StartCleanup(cfg.CleanupInterval)
 		return mgr, nil
 	})

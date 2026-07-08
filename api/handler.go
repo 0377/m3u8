@@ -11,6 +11,8 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+const maxRequestBodyBytes = 1 << 20 // 1 MiB
+
 type TaskManager interface {
 	Create(req *CreateTaskRequest, maxRetry int) (*TaskRecord, error)
 	Get(taskID string) (*TaskRecord, error)
@@ -34,6 +36,7 @@ func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) Parse(w http.ResponseWriter, r *http.Request) {
 	var req ParseRequest
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.URL == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "url 为必填项")
 		return
@@ -50,6 +53,7 @@ func (h *Handler) Parse(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) CreateTask(w http.ResponseWriter, r *http.Request) {
 	var req CreateTaskRequest
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.URL == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "url 为必填项")
 		return
@@ -94,7 +98,7 @@ func (h *Handler) ListTasks(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
 		return
 	}
-	var resp []TaskResponse
+	resp := make([]TaskResponse, 0, len(tasks))
 	for _, t := range tasks {
 		resp = append(resp, h.manager.ToResponse(t))
 	}

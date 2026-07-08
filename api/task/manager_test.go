@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/0377/m3u8/api"
+	"github.com/google/uuid"
 )
 
 func newTestM3U8Server(t *testing.T) *httptest.Server {
@@ -45,6 +46,57 @@ func TestManagerCreateAndGet(t *testing.T) {
 	}
 	if got.Status != api.TaskStatusPending {
 		t.Fatalf("want pending, got %s", got.Status)
+	}
+}
+
+func TestManagerRecoverNoDeadlock(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManager(Config{DataDir: dir, MaxTasks: 2, TaskTTL: time.Hour})
+
+	now := time.Now().UTC()
+	for i := 0; i < 4; i++ {
+		rec := &api.TaskRecord{
+			TaskID:    uuid.New().String(),
+			Status:    api.TaskStatusPending,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+		if err := m.store.Save(rec); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m.StartWorkers(2)
+
+	done := make(chan struct{})
+	go func() {
+		if err := m.Recover(); err != nil {
+			t.Errorf("Recover: %v", err)
+		}
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Recover deadlocked")
+	}
+	// 等待 worker 处理完恢复入队的任务，避免 TempDir 清理失败
+	time.Sleep(300 * time.Millisecond)
+}
+
+func TestManagerListEmptyOffset(t *testing.T) {
+	dir := t.TempDir()
+	m := NewManager(Config{DataDir: dir, MaxTasks: 1, TaskTTL: time.Hour})
+	tasks, err := m.List("", 20, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tasks == nil {
+		t.Fatal("want non-nil empty slice")
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("want empty slice, got %d", len(tasks))
 	}
 }
 

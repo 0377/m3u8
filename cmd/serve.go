@@ -1,11 +1,15 @@
 package cmd
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/0377/m3u8/api"
@@ -43,13 +47,12 @@ func RunServe(args []string) {
 		os.Exit(1)
 	}
 
-	origins := strings.Split(*corsOrigins, ",")
 	srv, err := api.NewServer(api.ServerConfig{
 		Port:            *port,
 		DataDir:         *dataDir,
 		AuthEnabled:     *authEnabled,
 		APIKey:          *apiKey,
-		CORSOrigins:     origins,
+		CORSOrigins:     parseCORSOrigins(*corsOrigins),
 		MaxTasks:        *maxTasks,
 		TaskTTL:         *taskTTL,
 		CleanupInterval: *cleanupInterval,
@@ -57,6 +60,44 @@ func RunServe(args []string) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("m3u8 API server listening on :%d", *port)
-	log.Fatal(srv.ListenAndServe())
+
+	errCh := make(chan error, 1)
+	go func() {
+		log.Printf("m3u8 API server listening on :%d", *port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			errCh <- err
+		}
+	}()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	select {
+	case err := <-errCh:
+		log.Fatal(err)
+	case sig := <-sigCh:
+		log.Printf("收到信号 %s，正在优雅关闭...", sig)
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("关闭服务时出错: %v", err)
+		os.Exit(1)
+	}
+	log.Println("服务已停止")
+}
+
+func parseCORSOrigins(raw string) []string {
+	parts := strings.Split(raw, ",")
+	origins := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if o := strings.TrimSpace(part); o != "" {
+			origins = append(origins, o)
+		}
+	}
+	if len(origins) == 0 {
+		return []string{"*"}
+	}
+	return origins
 }

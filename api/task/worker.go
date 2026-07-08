@@ -89,23 +89,13 @@ func (m *Manager) runTask(rec *api.TaskRecord) {
 	})
 
 	const maxRetry = 10
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- downloader.Start(rec.Concurrency, rec.ToMP4, maxRetry)
-	}()
-
-	select {
-	case err := <-errCh:
-		if err != nil {
-			if rec.Cancelled || errors.Is(ctx.Err(), context.Canceled) {
-				m.cancelTask(rec)
-			} else {
-				m.failTask(rec, err.Error())
-			}
-			return
+	downloader.SetCancelContext(ctx)
+	if err := downloader.Start(rec.Concurrency, rec.ToMP4, maxRetry); err != nil {
+		if rec.Cancelled || errors.Is(err, context.Canceled) {
+			m.cancelTask(rec)
+		} else {
+			m.failTask(rec, err.Error())
 		}
-	case <-ctx.Done():
-		m.cancelTask(rec)
 		return
 	}
 
