@@ -20,9 +20,12 @@ Two modes are available:
 - Auto-resolve Master playlists (selects the first variant)
 - Concurrent TS segment download with configurable workers
 - Per-segment retry on failure
+- Per-segment resume (re-run with the same `-u`, `-o`, and `-f` to skip completed segments)
 - AES-128 segment decryption
+- Pluggable decrypt scripts (Starlark / external process, configured via `decrypt.yaml`)
 - Merge TS segments into a single file
 - Remux to MP4 via ffmpeg (stream copy, no re-encoding)
+- Single-line terminal progress bar for download and merge
 - Custom HTTP headers, Cookie, and optional TLS skip-verify
 - HTTP API server for remote parsing, async downloads, progress tracking, and cancellation
 - Optional API Key authentication, CORS, task TTL, and automatic cleanup
@@ -71,6 +74,12 @@ m3u8 serve [options]          # start HTTP API server
 
 # Self-signed HTTPS certificate
 ./m3u8 -u=https://self-signed.example.com/index.m3u8 -k
+
+# Custom decryption script
+./m3u8 -u=https://example.com/index.m3u8 -decrypt-script scripts/custom.star
+
+# Resume an interrupted download (same -u, -o, -f)
+./m3u8 -u=https://example.com/index.m3u8 -o=./output -f myvideo
 ```
 
 ### Platform-specific
@@ -100,13 +109,44 @@ Windows PowerShell:
 | `-H` | | Custom HTTP header (`"Key: Value"`), repeatable |
 | `-cookie` | | Cookie request header |
 | `-k` | `false` | Skip HTTPS certificate verification (insecure) |
+| `-decrypt-script` | | Decrypt script path (`.star` or `.py`) |
+| `-decrypt-config` | `decrypt.yaml` | Decrypt config file path |
+| `-scripts-dir` | `scripts` | Decrypt script library directory |
 | `-h` | | Show help |
 
 > VOD playlists only. Some sources rate-limit requests — lower `-c` or raise `-r` as needed.
+>
+> To resume an interrupted download, re-run with the same `-u`, `-o`, and `-f`. Completed segments in `ts/` are reused automatically.
+
+## Decrypt Scripts
+
+For non-standard encryption (custom key derivation, SAMPLE-AES, etc.), place scripts in `scripts/` or configure rules in `decrypt.yaml` (copy from `decrypt.yaml.example`).
+
+Script selection priority: **CLI `-decrypt-script` → `decrypt.yaml` rules → auto-discovery by METHOD / hostname**.
+
+| Flag | Description |
+|------|-------------|
+| `-decrypt-script` | Explicit script path (highest priority) |
+| `-decrypt-config` | Config file with host/method matching rules |
+| `-scripts-dir` | Script library directory for auto-discovery |
+
+```bash
+# Use a config file
+./m3u8 -u=https://example.com/index.m3u8 -decrypt-config decrypt.yaml
+
+# Auto-match scripts/AES-128.star or scripts/example.com.py
+./m3u8 -u=https://example.com/index.m3u8 -scripts-dir scripts
+```
+
+Starlark (`.star`) runs in a sandbox; other extensions (`.py`, etc.) use a long-lived external process with JSON stdin/stdout. When no script matches and `METHOD` is `AES-128`, built-in decryption is used unchanged.
+
+See [scripts/README.md](scripts/README.md) for hook APIs, JSON protocol, and examples.
 
 ## HTTP API
 
 Run `m3u8 serve` to start an HTTP API server for parsing playlists, creating async download tasks, polling progress, and downloading finished files.
+
+The server auto-loads `decrypt.yaml` from the working directory if present (same script matching as CLI). Pending or running tasks are recovered on restart and resume from existing segments in the task directory.
 
 ### Starting the Server
 

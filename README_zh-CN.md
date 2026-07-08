@@ -20,11 +20,12 @@
 - 自动解析 Master playlist（选取第一个变体流）
 - 可配置并发数的 TS 分片下载
 - 单分片失败自动重试
-- 分片级断点续传（相同参数重跑自动跳过已完成分片）
+- 分片级断点续传（相同 `-u`、`-o`、`-f` 重跑自动跳过已完成分片）
 - AES-128 分片解密
 - 解密脚本支持（Starlark / 外部进程，配置文件 `decrypt.yaml`）
 - 合并 TS 分片为单个文件
 - 通过 ffmpeg 封装为 MP4（流复制，不重新编码）
+- 下载与合并过程单行进度条显示
 - 自定义 HTTP 请求头、Cookie，可选跳过 TLS 证书验证
 - HTTP API 服务：远程解析、异步下载、进度跟踪、任务取消
 - 可选 API Key 认证、CORS、任务 TTL 与自动清理
@@ -73,6 +74,12 @@ m3u8 serve [选项]          # 启动 HTTP API 服务
 
 # 自签名 HTTPS 证书
 ./m3u8 -u=https://self-signed.example.com/index.m3u8 -k
+
+# 自定义解密脚本
+./m3u8 -u=https://example.com/index.m3u8 -decrypt-script scripts/custom.star
+
+# 断点续传（使用相同的 -u、-o、-f）
+./m3u8 -u=https://example.com/index.m3u8 -o=./output -f myvideo
 ```
 
 ### 各平台运行
@@ -102,13 +109,44 @@ Windows PowerShell：
 | `-H` | | 自定义 HTTP 请求头（`"Key: Value"`），可重复指定 |
 | `-cookie` | | Cookie 请求头 |
 | `-k` | `false` | 跳过 HTTPS 证书验证（不安全） |
+| `-decrypt-script` | | 解密脚本路径（`.star` 或 `.py`） |
+| `-decrypt-config` | `decrypt.yaml` | 解密配置文件路径 |
+| `-scripts-dir` | `scripts` | 解密脚本库目录 |
 | `-h` | | 显示帮助信息 |
 
 > 仅支持 VOD 类型。部分链接限制请求频率，可适当调低 `-c` 或提高 `-r`。
+>
+> 中断后使用相同的 `-u`、`-o`、`-f` 重新运行即可续传，`ts/` 中已完成的分片会自动复用。
+
+## 解密脚本
+
+对于非标准加密（自定义 key 派生、SAMPLE-AES 等），可将脚本放在 `scripts/` 目录，或在 `decrypt.yaml` 中配置匹配规则（参考 `decrypt.yaml.example`）。
+
+脚本选择优先级：**CLI `-decrypt-script` → `decrypt.yaml` 规则 → 按 METHOD / 域名自动发现**。
+
+| 参数 | 说明 |
+|------|------|
+| `-decrypt-script` | 显式指定脚本路径（优先级最高） |
+| `-decrypt-config` | 按 host/method 匹配的配置文件 |
+| `-scripts-dir` | 自动发现脚本的脚本库目录 |
+
+```bash
+# 使用配置文件
+./m3u8 -u=https://example.com/index.m3u8 -decrypt-config decrypt.yaml
+
+# 自动匹配 scripts/AES-128.star 或 scripts/example.com.py
+./m3u8 -u=https://example.com/index.m3u8 -scripts-dir scripts
+```
+
+`.star` 脚本在沙箱中运行；其他扩展名（如 `.py`）通过长驻外部进程以 JSON stdin/stdout 通信。未匹配到脚本且 `METHOD` 为 `AES-128` 时，行为与无脚本时完全一致。
+
+详细 Hook API、JSON 协议与示例见 [scripts/README.md](scripts/README.md)。
 
 ## HTTP API
 
 通过 `m3u8 serve` 启动 HTTP API 服务，支持解析 M3U8、创建异步下载任务、查询进度与下载成品文件。
+
+服务启动时会自动加载工作目录下的 `decrypt.yaml`（脚本匹配规则与 CLI 一致）。重启后 pending / running 状态的任务会自动恢复，并从任务目录中已有分片继续下载。
 
 ### 启动服务
 
