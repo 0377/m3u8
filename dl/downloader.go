@@ -67,8 +67,8 @@ func NewTask(output string, url string) (*Downloader, error) {
 	return d, nil
 }
 
-// Start runs downloader
-func (d *Downloader) Start(concurrency int) error {
+// Start runs downloader. When toMP4 is true, merged TS is converted to MP4 via ffmpeg.
+func (d *Downloader) Start(concurrency int, toMP4 bool) error {
 	var wg sync.WaitGroup
 	// struct{} zero size
 	limitChan := make(chan struct{}, concurrency)
@@ -97,6 +97,13 @@ func (d *Downloader) Start(concurrency int) error {
 	wg.Wait()
 	if err := d.merge(); err != nil {
 		return err
+	}
+	if toMP4 {
+		tsPath := filepath.Join(d.folder, mergeTSFilename)
+		mp4Path := filepath.Join(d.folder, "main.mp4")
+		if err := tool.ConvertTSToMP4(tsPath, mp4Path); err != nil {
+			return err
+		}
 	}
 	return nil
 }
