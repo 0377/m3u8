@@ -45,6 +45,19 @@ func FromURL(link string, httpCfg *tool.HTTPConfig, cryptSvc *crypt.Service) (*R
 		Keys: make(map[int]crypt.KeyMaterial),
 	}
 
+	if cryptSvc != nil {
+		var keyURIs []string
+		for _, key := range m3u8.Keys {
+			if key == nil || key.Method == "" || key.Method == CryptMethodNONE || key.URI == "" {
+				continue
+			}
+			keyURIs = append(keyURIs, key.URI)
+		}
+		if id := cryptSvc.DetectProviderFromKeyURIs(keyURIs); id != "" {
+			cryptSvc.SetActiveProvider(id)
+		}
+	}
+
 	for idx, key := range m3u8.Keys {
 		if key.Method == "" || key.Method == CryptMethodNONE {
 			continue

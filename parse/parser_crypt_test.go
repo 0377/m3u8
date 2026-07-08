@@ -1,6 +1,7 @@
 package parse
 
 import (
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/0377/m3u8/crypt"
+	_ "github.com/0377/m3u8/crypt/provider"
 )
 
 func TestFromURL_aes128_without_cryptSvc(t *testing.T) {
@@ -131,6 +133,59 @@ seg0.ts
 	}
 	if string(mat.IV) != "hooked-iv" {
 		t.Fatalf("hooked iv: got %q", mat.IV)
+	}
+}
+
+func TestFromURL_detects_provider_from_key_uri(t *testing.T) {
+	pkey := "JduzsUuRvGVPRHvIYwLv"
+	cipherKey, err := hex.DecodeString("68addf7984478a3e4797d3a13ecbb6fb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantKey, err := hex.DecodeString("bed3747b8510b040826163c04956a4c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reg, err := crypt.NewRegistry(crypt.RegistryOptions{ScriptsDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := crypt.NewService(reg, crypt.ServiceProviderOptions{
+		Params: crypt.ProviderParams{Pkey: pkey},
+	})
+
+	keyURI := "/key?host=drm.vod2.myqcloud.com&drmType=SimpleAES&token=abc"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/playlist.m3u8":
+			_, _ = fmt.Fprintf(w, `#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:10
+#EXT-X-MEDIA-SEQUENCE:0
+#EXT-X-KEY:METHOD=AES-128,URI=%q,IV=0x0102030405060708090a0b0c0d0e0f10
+#EXTINF:10.0,
+seg0.ts
+#EXT-X-ENDLIST
+`, keyURI)
+		case "/key":
+			_, _ = w.Write(cipherKey)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	result, err := FromURL(srv.URL+"/playlist.m3u8", nil, svc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mat, ok := result.Keys[1]
+	if !ok {
+		t.Fatal("expected key at index 1")
+	}
+	if string(mat.Key) != string(wantKey) {
+		t.Fatalf("key: got %x want %x", mat.Key, wantKey)
 	}
 }
 
