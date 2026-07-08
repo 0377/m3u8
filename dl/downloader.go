@@ -118,6 +118,10 @@ func (d *Downloader) Start(concurrency int, toMP4 bool, maxRetry int) error {
 		if err := tool.ConvertTSToMP4(d.outputTS, d.outputMP4); err != nil {
 			return err
 		}
+		if err := os.Remove(d.outputTS); err != nil {
+			return fmt.Errorf("删除中间 TS 文件失败: %w", err)
+		}
+		fmt.Printf("[cleanup] 已删除中间文件 %s\n", d.outputTS)
 	}
 	return nil
 }
