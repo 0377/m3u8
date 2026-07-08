@@ -98,14 +98,7 @@ func (m *Manager) Create(req *api.CreateTaskRequest, maxRetry int) (*api.TaskRec
 }
 
 func (m *Manager) Get(taskID string) (*api.TaskRecord, error) {
-	rec, err := m.store.Load(taskID)
-	if err != nil {
-		if err.Error() == "task not found" {
-			return nil, api.ErrTaskNotFound
-		}
-		return nil, err
-	}
-	return rec, nil
+	return m.store.Load(taskID)
 }
 
 func (m *Manager) List(status string, limit, offset int) ([]*api.TaskRecord, error) {
@@ -250,8 +243,5 @@ func (m *Manager) countRunningLocked() int {
 }
 
 func (m *Manager) enqueue(rec *api.TaskRecord) {
-	select {
-	case m.workCh <- rec:
-	default:
-	}
+	m.workCh <- rec
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/0377/m3u8/api"
@@ -69,10 +70,12 @@ func (m *Manager) runTask(rec *api.TaskRecord) {
 		return
 	}
 
+	var progressMu sync.Mutex
 	downloader.SetProgressReporter(func(done, total int, message string) {
 		if ctx.Err() != nil {
 			return
 		}
+		progressMu.Lock()
 		rec.SegmentDone = done
 		rec.SegmentTotal = total
 		if total > 0 {
@@ -80,7 +83,9 @@ func (m *Manager) runTask(rec *api.TaskRecord) {
 		}
 		rec.Message = message
 		rec.UpdatedAt = time.Now().UTC()
-		_ = m.store.Save(rec)
+		snapshot := *rec
+		progressMu.Unlock()
+		_ = m.store.Save(&snapshot)
 	})
 
 	const maxRetry = 10

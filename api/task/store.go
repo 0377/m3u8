@@ -57,7 +57,7 @@ func (s *Store) Load(taskID string) (*api.TaskRecord, error) {
 	data, err := os.ReadFile(s.taskFile(taskID))
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("task not found")
+			return nil, api.ErrTaskNotFound
 		}
 		return nil, err
 	}

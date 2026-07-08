@@ -203,11 +203,12 @@ func (d *Downloader) next() (segIndex int, end bool, err error) {
 	defer d.lock.Unlock()
 	if len(d.queue) == 0 {
 		err = fmt.Errorf("queue empty")
-		if d.finish == int32(d.segLen) {
+		finish := atomic.LoadInt32(&d.finish)
+		if finish == int32(d.segLen) {
 			end = true
 			return
 		}
-		if int(d.finish)+len(d.failed) == d.segLen {
+		if int(finish)+len(d.failed) == d.segLen {
 			end = true
 			return
 		}
