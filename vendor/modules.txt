@@ -1,0 +1,3 @@
+# github.com/0377/m3u8
+## explicit; go 1.22
+github.com/0377/m3u8

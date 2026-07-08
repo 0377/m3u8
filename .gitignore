@@ -13,9 +13,11 @@
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 
-# Dependency directories (remove the comment below to include it)
-# vendor/
+# Dependency directories
+# vendor/ 目录纳入版本控制，构建时使用 -mod=vendor
 
 .idea
 m3u8
+m3u8-*
 /test
+*.exe

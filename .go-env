@@ -1,0 +1,2 @@
+# 强制使用 vendor 目录构建，离线环境可复现
+GOFLAGS=-mod=vendor

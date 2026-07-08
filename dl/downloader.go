@@ -3,15 +3,15 @@ package dl
 import (
 	"bufio"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"sync"
 	"sync/atomic"
 
-	"github.com/oopsguy/m3u8/parse"
-	"github.com/oopsguy/m3u8/tool"
+	"github.com/0377/m3u8/parse"
+	"github.com/0377/m3u8/tool"
 )
 
 const (
@@ -116,7 +116,7 @@ func (d *Downloader) download(segIndex int) error {
 	if err != nil {
 		return fmt.Errorf("create file: %s, %s", tsFilename, err.Error())
 	}
-	bytes, err := ioutil.ReadAll(b)
+	bytes, err := io.ReadAll(b)
 	if err != nil {
 		return fmt.Errorf("read bytes: %s, %s", tsUrl, err.Error())
 	}
@@ -214,7 +214,7 @@ func (d *Downloader) merge() error {
 	mergedCount := 0
 	for segIndex := 0; segIndex < d.segLen; segIndex++ {
 		tsFilename := tsFilename(segIndex)
-		bytes, err := ioutil.ReadFile(filepath.Join(d.tsFolder, tsFilename))
+		bytes, err := os.ReadFile(filepath.Join(d.tsFolder, tsFilename))
 		_, err = writer.Write(bytes)
 		if err != nil {
 			continue

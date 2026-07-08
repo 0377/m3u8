@@ -16,13 +16,18 @@ You only need to specify the flags(`u`, `o`, `c`) to run, downloader will automa
 
 ## Usage
 
-### source
-
 ```bash
-go run main.go -u=http://example.com/index.m3u8 -o=/data/example
+make vendor && make build
+./m3u8 -u=http://example.com/index.m3u8 -o=/data/example
 ```
 
-### binary:
+Or run from source:
+
+```bash
+go run -mod=vendor . -u=http://example.com/index.m3u8 -o=/data/example
+```
+
+### binary
 
 Linux & MacOS
 
@@ -36,10 +41,37 @@ Windows PowerShell
 .\m3u8.exe -u="http://example.com/index.m3u8" -o="D:\data\example"
 ```
 
+Flags:
+
+```
+-u  M3U8 URL (required)
+-o  Output folder (required)
+-c  Concurrency, default 25
+```
+
+## Development
+
+Go Modules + vendor mode (`-mod=vendor`) for reproducible offline builds.
+
+```bash
+make vendor   # populate vendor/
+make build    # build binary
+make test     # run tests
+```
+
+Cross-compile:
+
+```bash
+make build-linux
+make build-darwin-arm64
+make build-windows
+```
+
 ## Download
 
-[Binary packages](https://github.com/oopsguy/m3u8/releases)
+[Binary packages](https://github.com/0377/m3u8/releases)
 
+[Upstream releases](https://github.com/oopsguy/m3u8/releases)
 ## Screenshots
 
 ![Demo](./screenshots/demo.gif)
