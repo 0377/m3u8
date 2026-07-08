@@ -1,0 +1,23 @@
+package crypt
+
+import "github.com/0377/m3u8/tool"
+
+type BuiltinDecryptor struct{}
+
+func (d *BuiltinDecryptor) Name() string { return "builtin" }
+
+func (d *BuiltinDecryptor) ProcessKey(_ *Context, rawKey []byte, meta *KeyMeta) ([]byte, []byte, error) {
+	iv := []byte(nil)
+	if meta != nil && meta.IV != "" {
+		iv = []byte(meta.IV)
+	}
+	return rawKey, iv, nil
+}
+
+func (d *BuiltinDecryptor) DecryptSegment(_ *Context, ciphertext, key, iv []byte) ([]byte, error) {
+	return tool.AES128Decrypt(ciphertext, key, iv)
+}
+
+func (d *BuiltinDecryptor) DecryptFull(_ *Context, _ []byte) ([]byte, bool, error) {
+	return nil, false, nil
+}
