@@ -2,7 +2,6 @@ package task
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -13,11 +12,6 @@ import (
 	"github.com/0377/m3u8/parse"
 	"github.com/0377/m3u8/tool"
 	"github.com/google/uuid"
-)
-
-var (
-	ErrTooManyTasks = errors.New("too many running tasks")
-	ErrTaskNotFound = errors.New("task not found")
 )
 
 type Config struct {
@@ -63,7 +57,7 @@ func (m *Manager) Create(req *api.CreateTaskRequest, maxRetry int) (*api.TaskRec
 	m.mu.Lock()
 	if m.countRunningLocked() >= m.cfg.MaxTasks {
 		m.mu.Unlock()
-		return nil, ErrTooManyTasks
+		return nil, api.ErrTooManyTasks
 	}
 	m.mu.Unlock()
 
@@ -107,7 +101,7 @@ func (m *Manager) Get(taskID string) (*api.TaskRecord, error) {
 	rec, err := m.store.Load(taskID)
 	if err != nil {
 		if err.Error() == "task not found" {
-			return nil, ErrTaskNotFound
+			return nil, api.ErrTaskNotFound
 		}
 		return nil, err
 	}

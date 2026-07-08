@@ -1,6 +1,14 @@
 package api
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+var (
+	ErrTooManyTasks = errors.New("too many running tasks")
+	ErrTaskNotFound = errors.New("task not found")
+)
 
 const Version = "1.2.0"
 

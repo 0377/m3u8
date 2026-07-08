@@ -62,7 +62,7 @@ func TestManagerMaxTasksLimit(t *testing.T) {
 	all[0].Status = api.TaskStatusRunning
 	_ = m.store.Save(all[0])
 	_, err = m.Create(&api.CreateTaskRequest{URL: srv.URL + "/b.m3u8"}, 10)
-	if err != ErrTooManyTasks {
+	if err != api.ErrTooManyTasks {
 		t.Fatalf("want ErrTooManyTasks, got %v", err)
 	}
 }
