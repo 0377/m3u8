@@ -80,7 +80,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	downloader, err := dl.NewTask(output, url, filename, httpCfg)
+	downloader, err := dl.NewTask(output, url, filename, httpCfg, nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "错误: %v\n", err)
 		os.Exit(1)

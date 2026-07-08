@@ -10,6 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/0377/m3u8/crypt"
 	"github.com/0377/m3u8/parse"
 	"github.com/0377/m3u8/tool"
 )
@@ -35,14 +36,15 @@ type Downloader struct {
 	finish    int32
 	segLen    int
 
-	result  *parse.Result
-	httpCfg *tool.HTTPConfig
+	result   *parse.Result
+	httpCfg  *tool.HTTPConfig
+	cryptSvc *crypt.Service
 }
 
 // NewTask returns a Task instance.
 // filename is the output base name or filename (e.g. "video", "video.mp4"); empty uses "main".
-func NewTask(output string, url string, filename string, httpCfg *tool.HTTPConfig) (*Downloader, error) {
-	result, err := parse.FromURL(url, httpCfg, nil)
+func NewTask(output string, url string, filename string, httpCfg *tool.HTTPConfig, cryptSvc *crypt.Service) (*Downloader, error) {
+	result, err := parse.FromURL(url, httpCfg, cryptSvc)
 	if err != nil {
 		return nil, err
 	}
@@ -72,8 +74,9 @@ func NewTask(output string, url string, filename string, httpCfg *tool.HTTPConfi
 		outputMP4: mp4Path,
 		retries:   make(map[int]int),
 		failed:    make(map[int]struct{}),
-		result:    result,
-		httpCfg:   httpCfg,
+		result:   result,
+		httpCfg:  httpCfg,
+		cryptSvc: cryptSvc,
 	}
 	d.segLen = len(result.M3u8.Segments)
 	d.queue = genSlice(d.segLen)
@@ -155,9 +158,22 @@ func (d *Downloader) download(segIndex int) error {
 		if len(iv) == 0 && d.result.M3u8.Keys[sf.KeyIndex] != nil {
 			iv = []byte(d.result.M3u8.Keys[sf.KeyIndex].IV)
 		}
-		bytes, err = tool.AES128Decrypt(bytes, keyMat.Key, iv)
+		ctx := &crypt.Context{
+			M3U8URL:    d.result.URL.String(),
+			SegmentURI: sf.URI,
+			SegmentIdx: segIndex,
+		}
+		if k := d.result.M3u8.Keys[sf.KeyIndex]; k != nil {
+			ctx.Method = string(k.Method)
+			ctx.KeyMeta = crypt.KeyMeta{
+				Method: string(k.Method),
+				URI:    k.URI,
+				IV:     k.IV,
+			}
+		}
+		bytes, err = d.cryptSvc.DecryptSegment(ctx, bytes, keyMat.Key, iv)
 		if err != nil {
-			return fmt.Errorf("decryt: %s, %s", tsUrl, err.Error())
+			return fmt.Errorf("decrypt: %s, %s", tsUrl, err.Error())
 		}
 	}
 	// https://en.wikipedia.org/wiki/MPEG_transport_stream
