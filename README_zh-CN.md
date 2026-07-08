@@ -1,72 +1,112 @@
 # M3U8
 
-M3U8 是一个使用了 Go 语言编写的迷你 M3U8 下载工具。你只需指定必要的 flag (`u`、`o`、`c`) 来运行, 工具就会自动帮你解析 M3U8 文件，并将 TS 片段下载下来合并成一个文件。
+[![CI](https://github.com/0377/m3u8/actions/workflows/ci.yml/badge.svg)](https://github.com/0377/m3u8/actions/workflows/ci.yml)
+[![Go](https://img.shields.io/badge/Go-1.22-00ADD8?logo=go&logoColor=white)](https://go.dev/)
+[![License](https://img.shields.io/github/license/0377/m3u8)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/0377/m3u8)](https://github.com/0377/m3u8/releases)
 
+基于 Go 的轻量级 M3U8 下载工具。支持解析 HLS 播放列表、并发下载 TS 分片、AES-128 解密、合并为单个文件，并可通过 ffmpeg 封装为 MP4。
+
+提供两种使用方式：
+
+- **CLI 命令行** — 一次性本地下载
+- **HTTP API 服务** — 远程解析、异步任务、进度查询与文件下载
+
+[English](README.md)
 
 ## 功能
 
-- 下载和解析 M3U8（仅限 VOD 类型）
-- 下载 TS 失败重试
-- 解析 Master playlist
-- 解密 TS
-- 合并 TS 片段
+- 解析并下载 VOD 类型 M3U8 播放列表
+- 自动解析 Master playlist（选取第一个变体流）
+- 可配置并发数的 TS 分片下载
+- 单分片失败自动重试
+- AES-128 分片解密
+- 合并 TS 分片为单个文件
+- 通过 ffmpeg 封装为 MP4（流复制，不重新编码）
+- 自定义 HTTP 请求头、Cookie，可选跳过 TLS 证书验证
+- HTTP API 服务：远程解析、异步下载、进度跟踪、任务取消
+- 可选 API Key 认证、CORS、任务 TTL 与自动清理
 
-## 用法
+## 环境要求
 
-### 开发构建（vendor 模式）
+- Go 1.22+（源码构建）
+- [ffmpeg](https://ffmpeg.org/)（可选，启用 MP4 输出时需要 — 默认开启）
 
-项目使用 Go Modules + vendor 模式，构建时强制从 `vendor/` 目录读取依赖，保证可复现。
-
-```bash
-# 安装依赖到 vendor/（首次或更新依赖后）
-make vendor
-
-# 编译
-make build
-
-# 运行测试
-make test
-```
-
-也可直接：
+## 快速开始
 
 ```bash
-GOFLAGS=-mod=vendor go build -o m3u8 .
+make vendor && make build
+./m3u8 -u=https://example.com/index.m3u8 -o=./output
 ```
 
-### 源码方式
+或直接运行源码：
 
 ```bash
-go run -mod=vendor . -u=http://example.com/index.m3u8 -o=/data/example
+go run -mod=vendor . -u=https://example.com/index.m3u8 -o=./output
 ```
 
-### 二进制方式:
+## CLI 用法
 
-Linux 和 MacOS
-
-```
-./m3u8 -u=http://example.com/index.m3u8 -o=/data/example
-```
-
-Windows PowerShell
-
-```
-.\m3u8.exe -u="http://example.com/index.m3u8" -o="D:\data\example"
+```bash
+m3u8 -u <URL> [选项]
+m3u8 serve [选项]          # 启动 HTTP API 服务
 ```
 
-参数说明：
+### 示例
 
-```
-- u M3U8 地址
-- o 文件保存目录
-- c 下载协程并发数，默认 25
+```bash
+# 基本下载（默认输出 ./main.mp4）
+./m3u8 -u=https://example.com/index.m3u8
+
+# 指定输出目录和文件名
+./m3u8 -u=https://example.com/index.m3u8 -o=./output -f myvideo
+
+# 仅保留 TS 文件（不转 MP4）
+./m3u8 -u=https://example.com/index.m3u8 -mp4=false
+
+# 需要 Referer 或 Cookie 的站点
+./m3u8 -u=https://example.com/index.m3u8 \
+  -H "Referer: https://example.com/" \
+  -cookie "session=abc"
+
+# 自签名 HTTPS 证书
+./m3u8 -u=https://self-signed.example.com/index.m3u8 -k
 ```
 
-部分链接可能限制请求频率，可根据实际情况调整 `c` 参数的值。
+### 各平台运行
+
+Linux 和 macOS：
+
+```bash
+./m3u8 -u=https://example.com/index.m3u8 -o=./output
+```
+
+Windows PowerShell：
+
+```powershell
+.\m3u8.exe -u="https://example.com/index.m3u8" -o="D:\data\output"
+```
+
+### CLI 参数
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `-u` | | M3U8 地址（**必填**） |
+| `-o` | `.` | 输出目录 |
+| `-f` | `main` | 输出文件名（可带 `.ts` / `.mp4` 扩展名） |
+| `-c` | `25` | 下载并发数 |
+| `-r` | `10` | 单分片最大重试次数 |
+| `-mp4` | `true` | 合并后转 MP4（`-mp4=false` 关闭） |
+| `-H` | | 自定义 HTTP 请求头（`"Key: Value"`），可重复指定 |
+| `-cookie` | | Cookie 请求头 |
+| `-k` | `false` | 跳过 HTTPS 证书验证（不安全） |
+| `-h` | | 显示帮助信息 |
+
+> 仅支持 VOD 类型。部分链接限制请求频率，可适当调低 `-c` 或提高 `-r`。
 
 ## HTTP API
 
-除 CLI 下载外，还可通过 `m3u8 serve` 启动 HTTP API 服务，支持解析 M3U8、创建异步下载任务、查询进度与下载成品文件。
+通过 `m3u8 serve` 启动 HTTP API 服务，支持解析 M3U8、创建异步下载任务、查询进度与下载成品文件。
 
 ### 启动服务
 
@@ -89,7 +129,7 @@ make build
   --task-ttl 24h
 ```
 
-服务选项：
+### 服务选项
 
 | 选项 | 默认值 | 说明 |
 |------|--------|------|
@@ -118,6 +158,10 @@ make build
 
 \* 仅当 `--auth-enabled` 时要求认证。
 
+### 任务状态
+
+`pending` → `running` → `completed` | `failed` | `cancelled` | `expired`
+
 ### 使用示例
 
 解析 M3U8（默认返回前 5 个分片，加 `?full=true` 返回全部）：
@@ -134,31 +178,58 @@ curl -X POST http://localhost:8080/api/v1/parse \
 # 创建任务
 curl -X POST http://localhost:8080/api/v1/tasks \
   -H "Content-Type: application/json" \
-  -d '{"url":"https://example.com/index.m3u8","filename":"myvideo","concurrency":25}'
+  -d '{"url":"https://example.com/index.m3u8","filename":"myvideo","concurrency":25,"to_mp4":true}'
 
 # 查询任务（将 <taskID> 替换为返回的 task_id）
 curl http://localhost:8080/api/v1/tasks/<taskID>
 
 # 下载成品（任务 status 为 completed 后）
 curl -OJ http://localhost:8080/api/v1/tasks/<taskID>/download
+
+# 取消进行中的任务
+curl -X DELETE http://localhost:8080/api/v1/tasks/<taskID>
 ```
 
 启用认证时，在上述请求中增加 `-H "X-API-Key: your-secret-key"`。
+
+### 创建任务请求体
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `url` | string | | M3U8 地址（**必填**） |
+| `filename` | string | `main` | 输出文件名 |
+| `concurrency` | int | `25` | 下载并发数 |
+| `to_mp4` | bool | `true` | 合并后转 MP4 |
+
+## 开发
+
+项目使用 Go Modules + vendor 模式，构建时从 `vendor/` 读取依赖，保证可复现。
+
+```bash
+make vendor   # 安装依赖到 vendor/
+make build    # 编译
+make test     # 运行测试
+```
+
+交叉编译：
+
+```bash
+make build-linux
+make build-darwin-arm64
+make build-windows
+```
 
 ## 下载
 
 [二进制文件](https://github.com/0377/m3u8/releases)
 
-## 截屏
-
-![Demo](./screenshots/demo.gif)
+[上游发布](https://github.com/oopsguy/m3u8/releases)
 
 ## 参考资料
 
 - [TS科普 2 包头](https://blog.csdn.net/cabbage2008/article/details/49281729)
 - [HTTP Live Streaming draft-pantos-http-live-streaming-23](https://tools.ietf.org/html/draft-pantos-http-live-streaming-23#section-4.3.4.2)
 - [MPEG transport stream - Wikipedia](https://en.wikipedia.org/wiki/MPEG_transport_stream)
-
 
 ## License
 
