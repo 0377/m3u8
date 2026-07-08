@@ -12,7 +12,7 @@ import (
 	"github.com/0377/m3u8/tool"
 )
 
-const Version = "1.2.0"
+const Version = "1.3.0"
 
 type headerList []string
 

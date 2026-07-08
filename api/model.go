@@ -10,7 +10,7 @@ var (
 	ErrTaskNotFound = errors.New("task not found")
 )
 
-const Version = "1.2.0"
+const Version = "1.3.0"
 
 type TaskStatus string
 
