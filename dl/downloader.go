@@ -22,6 +22,8 @@ const (
 	progressWidth    = 40
 )
 
+type ProgressReporter func(done, total int, message string)
+
 type Downloader struct {
 	lock      sync.Mutex
 	queue     []int
@@ -34,8 +36,24 @@ type Downloader struct {
 	maxRetry  int
 	finish    int32
 	segLen    int
+	reporter  ProgressReporter
 
 	result *parse.Result
+}
+
+func (d *Downloader) SetProgressReporter(fn ProgressReporter) {
+	d.reporter = fn
+}
+
+func (d *Downloader) reportProgress(message string) {
+	done := int(atomic.LoadInt32(&d.finish))
+	if d.reporter != nil {
+		d.reporter(done, d.segLen, message)
+		return
+	}
+	if message == "downloading" && done > 0 {
+		fmt.Printf("[download %6.2f%%]\n", float32(done)/float32(d.segLen)*100)
+	}
 }
 
 // NewTask returns a Task instance.
@@ -173,8 +191,7 @@ func (d *Downloader) download(segIndex int) error {
 	}
 	// Maybe it will be safer in this way...
 	atomic.AddInt32(&d.finish, 1)
-	//tool.DrawProgressBar("Downloading", float32(d.finish)/float32(d.segLen), progressWidth)
-	fmt.Printf("[download %6.2f%%] %s\n", float32(d.finish)/float32(d.segLen)*100, tsUrl)
+	d.reportProgress("downloading")
 	return nil
 }
 
@@ -216,7 +233,7 @@ func (d *Downloader) back(segIndex int) error {
 		return fmt.Errorf("exceeded max retries (%d)", d.maxRetry)
 	}
 
-	fmt.Printf("[retry %d/%d] segment %d\n", d.retries[segIndex], d.maxRetry, segIndex)
+	d.reportProgress("retrying")
 	d.queue = append(d.queue, segIndex)
 	return nil
 }
@@ -254,8 +271,12 @@ func (d *Downloader) merge() error {
 			continue
 		}
 		mergedCount++
-		tool.DrawProgressBar("merge",
-			float32(mergedCount)/float32(d.segLen), progressWidth)
+		if d.reporter != nil {
+			d.reportProgress("merging")
+		} else {
+			tool.DrawProgressBar("merge",
+				float32(mergedCount)/float32(d.segLen), progressWidth)
+		}
 	}
 	_ = writer.Flush()
 	// Remove `ts` folder
