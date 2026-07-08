@@ -91,9 +91,13 @@
 
 ### 内置辅助函数
 
-```python
-aes128_cbc_decrypt(ciphertext, key, iv)  # 标准 AES-128-CBC 解密，返回 bytes
-```
+| 函数 | 说明 |
+|------|------|
+| `aes128_cbc_decrypt(ciphertext, key, iv)` | 标准 AES-128-CBC 解密（含 PKCS7 去填充），返回 `bytes` |
+| `sha256(data)` | SHA-256 摘要，参数为 `bytes`，返回 32 字节 `bytes` |
+| `hex_decode(s)` | 十六进制字符串 → `bytes` |
+| `base64_decode(s)` | 标准 Base64 字符串 → `bytes` |
+| `aes_cbc_decrypt_zero_iv(ciphertext, key)` | AES-CBC 解密，IV 为全零；`key` 可为 16/24/32 字节（腾讯云 SimpleAES 使用 32 字节 SHA256 摘要） |
 
 示例（Segment Hook 调用内置 AES）：
 
@@ -102,7 +106,56 @@ def decrypt_segment(ciphertext, key, iv, index, uri):
     return aes128_cbc_decrypt(ciphertext, key, iv)
 ```
 
-完整示例见本目录下的 `AES-128-custom.star`。
+完整示例见本目录下的 `AES-128-custom.star`；云点播参考脚本见下文。
+
+## 云点播内置 Provider
+
+工具内置腾讯云 SimpleAES 与阿里云 HLS 标准加密的 **URL 预处理** 与 **Key 二次解密**。检测到对应云点播特征时自动启用，**通常无需** `-decrypt-script`。
+
+### 自动检测规则
+
+| Provider | 触发条件（满足其一） | Key 处理 |
+|----------|---------------------|----------|
+| 腾讯云 SimpleAES | M3U8 域名为 `*.vod2.myqcloud.com`；或 key URI 含 `drm.vod2.myqcloud.com` 且 `drmType=SimpleAES` | `SHA256(pkey)` → AES-CBC（零 IV）解密密文 key |
+| 阿里云 HLS 标准加密 | M3U8 URL 含 `MtsHlsUriToken=`；或 key URI 含 `Ciphertext=` | 响应为 16 字节二进制或 Base64 文本 → 16 字节 AES key |
+
+### CLI 凭证参数
+
+凭证通过 CLI 手动传入，不写入 `decrypt.yaml`：
+
+| 参数 | 用途 |
+|------|------|
+| `-drm-token` | 腾讯云 DrmToken；用于在 M3U8 路径中插入 `voddrm.token.{token}` |
+| `-pkey` | 腾讯云 SimpleAES 播放密钥 |
+| `-mts-token` | 阿里云 `MtsHlsUriToken`，拼接到 M3U8 URL 查询参数 |
+
+```bash
+# 腾讯云 SimpleAES（推荐：内置 Provider，无需脚本）
+m3u8 -u "https://1500014561.vod2.myqcloud.com/.../index.m3u8" \
+  -drm-token "eyJhbGci..." \
+  -pkey "your-pkey"
+
+# 阿里云 HLS 标准加密
+m3u8 -u "https://example.aliyundoc.com/test.m3u8?MediaId=xxx" \
+  -mts-token "your-token"
+```
+
+### 编排优先级
+
+Key Hook 路径：**显式 `-decrypt-script` > 内置 Provider > `decrypt.yaml` / 自动发现脚本 > 原始 key**。
+
+指定 `-decrypt-script` 时，内置 Provider 的 Key 处理让位于脚本；URL 预处理（`-drm-token` / `-mts-token`）仍会执行。
+
+### 参考脚本（调试用）
+
+本目录提供与内置 Provider 等价的 Starlark 参考实现，便于对照算法或二次开发：
+
+| 脚本 | 说明 |
+|------|------|
+| `tencent-vod-simpleaes.star` | 演示 `sha256` + `aes_cbc_decrypt_zero_iv`；内含文档示例 `PKEY`，**勿用于生产** |
+| `aliyun-hls-standard.star` | 演示 `base64_decode` 路径；16 字节二进制响应直接透传 |
+
+生产环境请使用内置 Provider 配合 `-pkey` / `-drm-token` / `-mts-token`，不要将真实密钥写入脚本或提交到版本库。
 
 ## 外部脚本 JSON 协议
 
