@@ -69,7 +69,12 @@ func (m *Manager) Create(req *api.CreateTaskRequest, maxRetry int) (*api.TaskRec
 	}
 	m.mu.Unlock()
 
-	result, err := parse.FromURL(req.URL, nil, m.cryptSvc)
+	httpCfg, err := taskHTTPConfig(req.Proxy)
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := parse.FromURL(req.URL, httpCfg, m.cryptSvc)
 	if err != nil {
 		return nil, err
 	}
@@ -91,6 +96,7 @@ func (m *Manager) Create(req *api.CreateTaskRequest, maxRetry int) (*api.TaskRec
 		Filename:     filename,
 		Concurrency:  concurrency,
 		ToMP4:        toMP4,
+		Proxy:        req.Proxy,
 		Status:       api.TaskStatusPending,
 		SegmentTotal: len(result.M3u8.Segments),
 		CreatedAt:    now,
@@ -269,6 +275,10 @@ func (m *Manager) countRunningLocked() int {
 		}
 	}
 	return count
+}
+
+func taskHTTPConfig(proxy string) (*tool.HTTPConfig, error) {
+	return tool.HTTPConfigFrom(nil, "", proxy, false)
 }
 
 func (m *Manager) enqueue(rec *api.TaskRecord) {

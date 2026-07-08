@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -13,7 +14,28 @@ import (
 type HTTPConfig struct {
 	Headers     map[string]string
 	Cookie      string
+	Proxy       string
 	InsecureTLS bool
+}
+
+// ValidateProxyURL checks that proxy is a supported http(s) proxy URL.
+func ValidateProxyURL(proxy string) error {
+	if proxy == "" {
+		return nil
+	}
+	u, err := url.Parse(proxy)
+	if err != nil {
+		return fmt.Errorf("invalid proxy URL %q: %w", proxy, err)
+	}
+	switch strings.ToLower(u.Scheme) {
+	case "http", "https":
+	default:
+		return fmt.Errorf("unsupported proxy scheme %q (use http or https)", u.Scheme)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("invalid proxy URL %q: missing host", proxy)
+	}
+	return nil
 }
 
 // ParseHeaders parses "Key: Value" lines into a header map.
@@ -34,15 +56,22 @@ func ParseHeaders(lines []string) (map[string]string, error) {
 	return headers, nil
 }
 
-func (c *HTTPConfig) client() *http.Client {
+func (c *HTTPConfig) client() (*http.Client, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	if c.InsecureTLS {
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec
 	}
+	if c.Proxy != "" {
+		proxyURL, err := url.Parse(c.Proxy)
+		if err != nil {
+			return nil, fmt.Errorf("invalid proxy URL: %w", err)
+		}
+		transport.Proxy = http.ProxyURL(proxyURL)
+	}
 	return &http.Client{
 		Timeout:   60 * time.Second,
 		Transport: transport,
-	}
+	}, nil
 }
 
 func defaultClient() *http.Client {
@@ -61,13 +90,33 @@ func (c *HTTPConfig) applyRequest(req *http.Request) {
 	}
 }
 
+// HTTPConfigFrom builds an HTTPConfig, or nil when all options are empty.
+func HTTPConfigFrom(headers map[string]string, cookie, proxy string, insecureTLS bool) (*HTTPConfig, error) {
+	if err := ValidateProxyURL(proxy); err != nil {
+		return nil, err
+	}
+	if len(headers) == 0 && cookie == "" && proxy == "" && !insecureTLS {
+		return nil, nil
+	}
+	return &HTTPConfig{
+		Headers:     headers,
+		Cookie:      cookie,
+		Proxy:       proxy,
+		InsecureTLS: insecureTLS,
+	}, nil
+}
+
 // Get performs an HTTP GET with optional client configuration.
 func Get(url string, cfg *HTTPConfig) (io.ReadCloser, error) {
 	var client *http.Client
 	if cfg == nil {
 		client = defaultClient()
 	} else {
-		client = cfg.client()
+		var err error
+		client, err = cfg.client()
+		if err != nil {
+			return nil, err
+		}
 	}
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {

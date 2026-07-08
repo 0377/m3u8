@@ -38,7 +38,8 @@ type HealthResponse struct {
 }
 
 type ParseRequest struct {
-	URL string `json:"url"`
+	URL   string `json:"url"`
+	Proxy string `json:"proxy,omitempty"`
 }
 
 type SegmentInfo struct {
@@ -63,6 +64,7 @@ type CreateTaskRequest struct {
 	Filename    string `json:"filename"`
 	Concurrency int    `json:"concurrency"`
 	ToMP4       *bool  `json:"to_mp4"`
+	Proxy       string `json:"proxy,omitempty"`
 }
 
 type CreateTaskResponse struct {
@@ -99,6 +101,7 @@ type TaskRecord struct {
 	Filename     string      `json:"filename"`
 	Concurrency  int         `json:"concurrency"`
 	ToMP4        bool        `json:"to_mp4"`
+	Proxy        string      `json:"proxy,omitempty"`
 	Status       TaskStatus  `json:"status"`
 	Progress     float64     `json:"progress"`
 	Message      string      `json:"message"`

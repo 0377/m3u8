@@ -27,6 +27,7 @@
 - 通过 ffmpeg 封装为 MP4（流复制，不重新编码）
 - 下载与合并过程单行进度条显示
 - 自定义 HTTP 请求头、Cookie，可选跳过 TLS 证书验证
+- HTTP/HTTPS 代理支持（CLI `-proxy` 或 `HTTP_PROXY` / `HTTPS_PROXY` 环境变量）
 - HTTP API 服务：远程解析、异步下载、进度跟踪、任务取消
 - 可选 API Key 认证、CORS、任务 TTL 与自动清理
 
@@ -75,6 +76,9 @@ m3u8 serve [选项]          # 启动 HTTP API 服务
 # 自签名 HTTPS 证书
 ./m3u8 -u=https://self-signed.example.com/index.m3u8 -k
 
+# 通过 HTTP 代理下载
+./m3u8 -u=https://example.com/index.m3u8 -proxy http://127.0.0.1:7890
+
 # 自定义解密脚本
 ./m3u8 -u=https://example.com/index.m3u8 -decrypt-script scripts/custom.star
 
@@ -108,6 +112,7 @@ Windows PowerShell：
 | `-mp4` | `true` | 合并后转 MP4（`-mp4=false` 关闭） |
 | `-H` | | 自定义 HTTP 请求头（`"Key: Value"`），可重复指定 |
 | `-cookie` | | Cookie 请求头 |
+| `-proxy` | | HTTP 代理地址（如 `http://127.0.0.1:7890`） |
 | `-k` | `false` | 跳过 HTTPS 证书验证（不安全） |
 | `-decrypt-script` | | 解密脚本路径（`.star` 或 `.py`） |
 | `-decrypt-config` | `decrypt.yaml` | 解密配置文件路径 |
@@ -115,6 +120,8 @@ Windows PowerShell：
 | `-h` | | 显示帮助信息 |
 
 > 仅支持 VOD 类型。部分链接限制请求频率，可适当调低 `-c` 或提高 `-r`。
+>
+> 未指定 `-proxy` 时，自动读取 `HTTP_PROXY` / `HTTPS_PROXY` 环境变量。
 >
 > 中断后使用相同的 `-u`、`-o`、`-f` 重新运行即可续传，`ts/` 中已完成的分片会自动复用。
 
@@ -209,7 +216,7 @@ make build
 ```bash
 curl -X POST http://localhost:8080/api/v1/parse \
   -H "Content-Type: application/json" \
-  -d '{"url":"https://example.com/index.m3u8"}'
+  -d '{"url":"https://example.com/index.m3u8","proxy":"http://127.0.0.1:7890"}'
 ```
 
 创建下载任务并轮询状态：
@@ -218,7 +225,7 @@ curl -X POST http://localhost:8080/api/v1/parse \
 # 创建任务
 curl -X POST http://localhost:8080/api/v1/tasks \
   -H "Content-Type: application/json" \
-  -d '{"url":"https://example.com/index.m3u8","filename":"myvideo","concurrency":25,"to_mp4":true}'
+  -d '{"url":"https://example.com/index.m3u8","filename":"myvideo","concurrency":25,"to_mp4":true,"proxy":"http://127.0.0.1:7890"}'
 
 # 查询任务（将 <taskID> 替换为返回的 task_id）
 curl http://localhost:8080/api/v1/tasks/<taskID>
@@ -240,6 +247,7 @@ curl -X DELETE http://localhost:8080/api/v1/tasks/<taskID>
 | `filename` | string | `main` | 输出文件名 |
 | `concurrency` | int | `25` | 下载并发数 |
 | `to_mp4` | bool | `true` | 合并后转 MP4 |
+| `proxy` | string | | HTTP 代理地址 |
 
 ## 开发
 

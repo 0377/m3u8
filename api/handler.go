@@ -9,6 +9,7 @@ import (
 
 	"github.com/0377/m3u8/crypt"
 	"github.com/0377/m3u8/parse"
+	"github.com/0377/m3u8/tool"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -44,7 +45,12 @@ func (h *Handler) Parse(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "url 为必填项")
 		return
 	}
-	result, err := parse.FromURL(req.URL, nil, h.manager.CryptService())
+	httpCfg, err := httpCfgFromProxy(req.Proxy)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
+		return
+	}
+	result, err := parse.FromURL(req.URL, httpCfg, h.manager.CryptService())
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "PARSE_FAILED", err.Error())
 		return
@@ -59,6 +65,10 @@ func (h *Handler) CreateTask(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.URL == "" {
 		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "url 为必填项")
+		return
+	}
+	if _, err := httpCfgFromProxy(req.Proxy); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
 		return
 	}
 	rec, err := h.manager.Create(&req, 10)
@@ -137,6 +147,10 @@ func (h *Handler) CancelTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func httpCfgFromProxy(proxy string) (*tool.HTTPConfig, error) {
+	return tool.HTTPConfigFrom(nil, "", proxy, false)
 }
 
 func buildParseResponse(result *parse.Result, full bool) ParseResponse {

@@ -27,6 +27,7 @@ Two modes are available:
 - Remux to MP4 via ffmpeg (stream copy, no re-encoding)
 - Single-line terminal progress bar for download and merge
 - Custom HTTP headers, Cookie, and optional TLS skip-verify
+- HTTP/HTTPS proxy support (CLI `-proxy` or `HTTP_PROXY` / `HTTPS_PROXY` env vars)
 - HTTP API server for remote parsing, async downloads, progress tracking, and cancellation
 - Optional API Key authentication, CORS, task TTL, and automatic cleanup
 
@@ -75,6 +76,9 @@ m3u8 serve [options]          # start HTTP API server
 # Self-signed HTTPS certificate
 ./m3u8 -u=https://self-signed.example.com/index.m3u8 -k
 
+# Download via HTTP proxy
+./m3u8 -u=https://example.com/index.m3u8 -proxy http://127.0.0.1:7890
+
 # Custom decryption script
 ./m3u8 -u=https://example.com/index.m3u8 -decrypt-script scripts/custom.star
 
@@ -108,6 +112,7 @@ Windows PowerShell:
 | `-mp4` | `true` | Remux merged TS to MP4 via ffmpeg (`-mp4=false` to disable) |
 | `-H` | | Custom HTTP header (`"Key: Value"`), repeatable |
 | `-cookie` | | Cookie request header |
+| `-proxy` | | HTTP proxy URL (e.g. `http://127.0.0.1:7890`) |
 | `-k` | `false` | Skip HTTPS certificate verification (insecure) |
 | `-decrypt-script` | | Decrypt script path (`.star` or `.py`) |
 | `-decrypt-config` | `decrypt.yaml` | Decrypt config file path |
@@ -115,6 +120,8 @@ Windows PowerShell:
 | `-h` | | Show help |
 
 > VOD playlists only. Some sources rate-limit requests — lower `-c` or raise `-r` as needed.
+>
+> When `-proxy` is not set, `HTTP_PROXY` / `HTTPS_PROXY` environment variables are used automatically.
 >
 > To resume an interrupted download, re-run with the same `-u`, `-o`, and `-f`. Completed segments in `ts/` are reused automatically.
 
@@ -209,7 +216,7 @@ Parse an M3U8 URL (returns first 5 segments by default; use `?full=true` for all
 ```bash
 curl -X POST http://localhost:8080/api/v1/parse \
   -H "Content-Type: application/json" \
-  -d '{"url":"https://example.com/index.m3u8"}'
+  -d '{"url":"https://example.com/index.m3u8","proxy":"http://127.0.0.1:7890"}'
 ```
 
 Create a task and poll until complete:
@@ -218,7 +225,7 @@ Create a task and poll until complete:
 # Create task
 curl -X POST http://localhost:8080/api/v1/tasks \
   -H "Content-Type: application/json" \
-  -d '{"url":"https://example.com/index.m3u8","filename":"myvideo","concurrency":25,"to_mp4":true}'
+  -d '{"url":"https://example.com/index.m3u8","filename":"myvideo","concurrency":25,"to_mp4":true,"proxy":"http://127.0.0.1:7890"}'
 
 # Poll status (replace <taskID> with returned task_id)
 curl http://localhost:8080/api/v1/tasks/<taskID>
@@ -240,6 +247,7 @@ When auth is enabled, add `-H "X-API-Key: your-secret-key"` to the requests abov
 | `filename` | string | `main` | Output base name |
 | `concurrency` | int | `25` | Download workers |
 | `to_mp4` | bool | `true` | Remux to MP4 after merge |
+| `proxy` | string | | HTTP proxy URL |
 
 ## Development
 

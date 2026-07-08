@@ -55,3 +55,55 @@ func TestGetWithHTTPConfig(t *testing.T) {
 		t.Fatalf("unexpected Cookie: %q", gotCookie)
 	}
 }
+
+func TestValidateProxyURL(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		proxy string
+		ok    bool
+	}{
+		{"", true},
+		{"http://127.0.0.1:7890", true},
+		{"https://proxy.example.com:8080", true},
+		{"socks5://127.0.0.1:1080", false},
+		{"not-a-url", false},
+		{"http://", false},
+	}
+	for _, tc := range cases {
+		err := ValidateProxyURL(tc.proxy)
+		if tc.ok && err != nil {
+			t.Fatalf("proxy %q: unexpected error: %v", tc.proxy, err)
+		}
+		if !tc.ok && err == nil {
+			t.Fatalf("proxy %q: expected error", tc.proxy)
+		}
+	}
+}
+
+func TestHTTPConfigFromProxy(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := HTTPConfigFrom(nil, "", "http://127.0.0.1:7890", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg == nil || cfg.Proxy != "http://127.0.0.1:7890" {
+		t.Fatalf("unexpected config: %#v", cfg)
+	}
+	client, err := cfg.client()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.Transport == nil {
+		t.Fatal("expected transport")
+	}
+
+	empty, err := HTTPConfigFrom(nil, "", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if empty != nil {
+		t.Fatalf("expected nil config, got %#v", empty)
+	}
+}

@@ -37,6 +37,7 @@ func RunDownload(args []string) {
 		showHelp      bool
 		headerLines   headerList
 		cookie        string
+		proxy         string
 		insecureTLS   bool
 		decryptScript string
 		decryptConfig string
@@ -51,6 +52,7 @@ func RunDownload(args []string) {
 	fs.BoolVar(&toMP4, "mp4", true, "合并后转 MP4（默认开启，使用 -mp4=false 关闭）")
 	fs.Var(&headerLines, "H", "自定义 HTTP 请求头，格式 \"Key: Value\"，可重复指定")
 	fs.StringVar(&cookie, "cookie", "", "自定义 Cookie 请求头")
+	fs.StringVar(&proxy, "proxy", "", "HTTP 代理地址（如 http://127.0.0.1:7890）")
 	fs.BoolVar(&insecureTLS, "k", false, "跳过 HTTPS 证书验证（不安全，仅用于自签名证书等场景）")
 	fs.StringVar(&decryptScript, "decrypt-script", "", "解密脚本路径（.star 或 .py）")
 	fs.StringVar(&decryptConfig, "decrypt-config", "decrypt.yaml", "解密配置文件路径")
@@ -81,7 +83,7 @@ func RunDownload(args []string) {
 		os.Exit(1)
 	}
 
-	httpCfg, err := buildHTTPConfig(headerLines, cookie, insecureTLS)
+	httpCfg, err := buildHTTPConfig(headerLines, cookie, proxy, insecureTLS)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "错误: %v\n", err)
 		os.Exit(1)
@@ -110,19 +112,12 @@ func RunDownload(args []string) {
 	fmt.Println("Done!")
 }
 
-func buildHTTPConfig(headerLines headerList, cookie string, insecureTLS bool) (*tool.HTTPConfig, error) {
+func buildHTTPConfig(headerLines headerList, cookie, proxy string, insecureTLS bool) (*tool.HTTPConfig, error) {
 	headers, err := tool.ParseHeaders(headerLines)
 	if err != nil {
 		return nil, err
 	}
-	if len(headers) == 0 && cookie == "" && !insecureTLS {
-		return nil, nil
-	}
-	return &tool.HTTPConfig{
-		Headers:     headers,
-		Cookie:      cookie,
-		InsecureTLS: insecureTLS,
-	}, nil
+	return tool.HTTPConfigFrom(headers, cookie, proxy, insecureTLS)
 }
 
 func downloadUsage(fs *flag.FlagSet) {
@@ -140,6 +135,7 @@ func downloadUsage(fs *flag.FlagSet) {
   m3u8 -u=https://example.com/index.m3u8 -o=./output
   m3u8 -u https://example.com/index.m3u8 -o ./output -f myvideo
   m3u8 -u https://example.com/index.m3u8 -H "Referer: https://example.com/" -cookie "session=abc"
+  m3u8 -u https://example.com/index.m3u8 -proxy http://127.0.0.1:7890
   m3u8 -u https://self-signed.example.com/index.m3u8 -k
   m3u8 -u https://example.com/index.m3u8 -decrypt-script scripts/custom.star
   m3u8 -u https://example.com/index.m3u8 -decrypt-config decrypt.yaml -scripts-dir scripts
@@ -150,7 +146,8 @@ func downloadUsage(fs *flag.FlagSet) {
   - -f 指定输出文件名，合并为 <目录>/<名称>.ts，转 MP4 时为 <目录>/<名称>.mp4
   - 转 MP4 需要系统已安装 ffmpeg
   - 部分链接限制请求频率，可适当调低 -c 并发数或提高 -r 重试次数
-  - -H 可多次指定自定义请求头；-cookie 设置 Cookie；-k 跳过 HTTPS 证书验证
+  - -H 可多次指定自定义请求头；-cookie 设置 Cookie；-proxy 设置 HTTP 代理；-k 跳过 HTTPS 证书验证
+  - 未指定 -proxy 时，自动读取 HTTP_PROXY / HTTPS_PROXY 环境变量
   - -decrypt-script 指定解密脚本；-decrypt-config 指定解密配置（默认 decrypt.yaml）
   - -scripts-dir 指定脚本库目录（默认 scripts），按 METHOD/域名自动匹配
 `)
