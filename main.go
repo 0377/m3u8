@@ -4,21 +4,37 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/0377/m3u8/dl"
+	"github.com/0377/m3u8/tool"
 )
 
 const version = "1.2.0"
 
 var (
-	url      string
-	output   string
-	filename string
-	chanSize int
-	maxRetry int
-	toMP4    bool
-	showHelp bool
+	url         string
+	output      string
+	filename    string
+	chanSize    int
+	maxRetry    int
+	toMP4       bool
+	showHelp    bool
+	headerLines headerList
+	cookie      string
+	insecureTLS bool
 )
+
+type headerList []string
+
+func (h *headerList) String() string {
+	return strings.Join(*h, ", ")
+}
+
+func (h *headerList) Set(value string) error {
+	*h = append(*h, value)
+	return nil
+}
 
 func init() {
 	flag.StringVar(&url, "u", "", "M3U8 地址（必填）")
@@ -27,6 +43,9 @@ func init() {
 	flag.IntVar(&chanSize, "c", 25, "下载并发数")
 	flag.IntVar(&maxRetry, "r", 10, "单分片最大重试次数")
 	flag.BoolVar(&toMP4, "mp4", true, "合并后转 MP4（默认开启，使用 -mp4=false 关闭）")
+	flag.Var(&headerLines, "H", "自定义 HTTP 请求头，格式 \"Key: Value\"，可重复指定")
+	flag.StringVar(&cookie, "cookie", "", "自定义 Cookie 请求头")
+	flag.BoolVar(&insecureTLS, "k", false, "跳过 HTTPS 证书验证（不安全，仅用于自签名证书等场景）")
 	flag.BoolVar(&showHelp, "h", false, "显示帮助信息")
 	flag.BoolVar(&showHelp, "help", false, "显示帮助信息")
 	flag.Usage = usage
@@ -55,7 +74,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	downloader, err := dl.NewTask(output, url, filename)
+	httpCfg, err := buildHTTPConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "错误: %v\n", err)
+		os.Exit(1)
+	}
+
+	downloader, err := dl.NewTask(output, url, filename, httpCfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "错误: %v\n", err)
 		os.Exit(1)
@@ -65,6 +90,21 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Println("Done!")
+}
+
+func buildHTTPConfig() (*tool.HTTPConfig, error) {
+	headers, err := tool.ParseHeaders(headerLines)
+	if err != nil {
+		return nil, err
+	}
+	if len(headers) == 0 && cookie == "" && !insecureTLS {
+		return nil, nil
+	}
+	return &tool.HTTPConfig{
+		Headers:     headers,
+		Cookie:      cookie,
+		InsecureTLS: insecureTLS,
+	}, nil
 }
 
 func usage() {
@@ -81,11 +121,14 @@ func usage() {
   m3u8 -u=https://example.com/index.m3u8
   m3u8 -u=https://example.com/index.m3u8 -o=./output
   m3u8 -u https://example.com/index.m3u8 -o ./output -f myvideo
+  m3u8 -u https://example.com/index.m3u8 -H "Referer: https://example.com/" -cookie "session=abc"
+  m3u8 -u https://self-signed.example.com/index.m3u8 -k
 
 说明:
   - 仅支持 VOD 类型 M3U8
   - -f 指定输出文件名，合并为 <目录>/<名称>.ts，转 MP4 时为 <目录>/<名称>.mp4
   - 转 MP4 需要系统已安装 ffmpeg
   - 部分链接限制请求频率，可适当调低 -c 并发数或提高 -r 重试次数
+  - -H 可多次指定自定义请求头；-cookie 设置 Cookie；-k 跳过 HTTPS 证书验证
 `)
 }

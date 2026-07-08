@@ -35,13 +35,14 @@ type Downloader struct {
 	finish    int32
 	segLen    int
 
-	result *parse.Result
+	result  *parse.Result
+	httpCfg *tool.HTTPConfig
 }
 
 // NewTask returns a Task instance.
 // filename is the output base name or filename (e.g. "video", "video.mp4"); empty uses "main".
-func NewTask(output string, url string, filename string) (*Downloader, error) {
-	result, err := parse.FromURL(url)
+func NewTask(output string, url string, filename string, httpCfg *tool.HTTPConfig) (*Downloader, error) {
+	result, err := parse.FromURL(url, httpCfg)
 	if err != nil {
 		return nil, err
 	}
@@ -72,6 +73,7 @@ func NewTask(output string, url string, filename string) (*Downloader, error) {
 		retries:   make(map[int]int),
 		failed:    make(map[int]struct{}),
 		result:    result,
+		httpCfg:   httpCfg,
 	}
 	d.segLen = len(result.M3u8.Segments)
 	d.queue = genSlice(d.segLen)
@@ -123,7 +125,7 @@ func (d *Downloader) Start(concurrency int, toMP4 bool, maxRetry int) error {
 func (d *Downloader) download(segIndex int) error {
 	tsFilename := tsFilename(segIndex)
 	tsUrl := d.tsURL(segIndex)
-	b, e := tool.Get(tsUrl)
+	b, e := tool.Get(tsUrl, d.httpCfg)
 	if e != nil {
 		return fmt.Errorf("request %s, %s", tsUrl, e.Error())
 	}
