@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/0377/m3u8/crypt"
+	_ "github.com/0377/m3u8/crypt/provider"
 	"github.com/0377/m3u8/dl"
 	"github.com/0377/m3u8/tool"
 )
@@ -89,7 +90,7 @@ func RunDownload(args []string) {
 		os.Exit(1)
 	}
 
-	cryptSvc, err := crypt.BuildService(crypt.ServiceOptions{
+	processedURL, cryptSvc, err := crypt.BuildService(url, crypt.ServiceOptions{
 		DecryptScript: decryptScript,
 		DecryptConfig: decryptConfig,
 		ScriptsDir:    scriptsDir,
@@ -100,7 +101,7 @@ func RunDownload(args []string) {
 	}
 	defer func() { _ = cryptSvc.Close() }()
 
-	downloader, err := dl.NewTask(output, url, filename, httpCfg, cryptSvc)
+	downloader, err := dl.NewTask(output, processedURL, filename, httpCfg, cryptSvc)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "错误: %v\n", err)
 		os.Exit(1)

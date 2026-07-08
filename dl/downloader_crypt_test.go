@@ -47,7 +47,7 @@ seg0.ts
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := crypt.NewService(reg)
+	svc := crypt.NewService(reg, crypt.ServiceProviderOptions{})
 
 	outDir := t.TempDir()
 	d, err := NewTask(outDir, srv.URL+"/playlist.m3u8", "test", nil, svc)
@@ -93,7 +93,7 @@ seg0.ts
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := crypt.NewService(reg)
+	svc := crypt.NewService(reg, crypt.ServiceProviderOptions{})
 
 	outDir := t.TempDir()
 	d, err := NewTask(outDir, srv.URL+"/playlist.m3u8", "test", nil, svc)

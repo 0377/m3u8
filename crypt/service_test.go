@@ -13,7 +13,7 @@ func TestService_decrypt_segment_builtin_fallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := NewService(reg)
+	svc := NewService(reg, ServiceProviderOptions{})
 	plain := []byte("helloworld")
 	key := []byte("8dv4byf8b9e6bc1x")
 	iv := []byte("xduio1f8a12348u4")
@@ -49,7 +49,7 @@ func TestService_decrypt_segment_full_hook(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := NewService(reg)
+	svc := NewService(reg, ServiceProviderOptions{})
 	ctx := &Context{Method: "CUSTOM", M3U8URL: "https://x.com/a.m3u8"}
 	out, err := svc.DecryptSegment(ctx, []byte("data"), nil, nil)
 	if err != nil {

@@ -1,14 +1,23 @@
 package crypt
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
+
+type ServiceProviderOptions struct {
+	ActiveID string
+	Params   ProviderParams
+}
 
 type Service struct {
 	registry *Registry
 	builtin  *BuiltinDecryptor
+	prov     ServiceProviderOptions
 }
 
-func NewService(registry *Registry) *Service {
-	return &Service{registry: registry, builtin: &BuiltinDecryptor{}}
+func NewService(registry *Registry, prov ServiceProviderOptions) *Service {
+	return &Service{registry: registry, builtin: &BuiltinDecryptor{}, prov: prov}
 }
 
 func (s *Service) Close() error {
@@ -18,8 +27,40 @@ func (s *Service) Close() error {
 	return nil
 }
 
+func (s *Service) SetActiveProvider(id string) {
+	s.prov.ActiveID = id
+}
+
+func (s *Service) DetectProviderFromKeyURIs(uris []string) string {
+	if providerIntegration.DetectFromKeyURI == nil {
+		return ""
+	}
+	for _, uri := range uris {
+		if id := providerIntegration.DetectFromKeyURI(uri); id != "" {
+			return id
+		}
+	}
+	return ""
+}
+
+func (s *Service) providerDecryptor() (Decryptor, error) {
+	if providerIntegration.NewDecryptor == nil {
+		return nil, fmt.Errorf("unknown provider %q", s.prov.ActiveID)
+	}
+	return providerIntegration.NewDecryptor(s.prov.ActiveID)
+}
+
 func (s *Service) ProcessKey(ctx *Context, rawKey []byte, meta *KeyMeta) (KeyMaterial, error) {
-	d, err := s.registry.Resolve(ctx)
+	ctx.Provider = s.prov.ActiveID
+	ctx.Params = s.prov.Params
+
+	var d Decryptor
+	var err error
+	if !s.registry.HasExplicitScript(ctx) && s.prov.ActiveID != "" {
+		d, err = s.providerDecryptor()
+	} else {
+		d, err = s.registry.Resolve(ctx)
+	}
 	if err != nil {
 		return KeyMaterial{}, err
 	}

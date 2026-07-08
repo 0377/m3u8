@@ -7,13 +7,14 @@ import (
 
 // ServiceOptions configures crypt.Service construction for CLI and API.
 type ServiceOptions struct {
-	DecryptScript string
-	DecryptConfig string
-	ScriptsDir    string
+	DecryptScript  string
+	DecryptConfig  string
+	ScriptsDir     string
+	ProviderParams ProviderParams
 }
 
 // BuildService loads decrypt.yaml (if present) and constructs a crypt.Service.
-func BuildService(opts ServiceOptions) (*Service, error) {
+func BuildService(m3u8URL string, opts ServiceOptions) (processedURL string, svc *Service, err error) {
 	decryptConfig := opts.DecryptConfig
 	if decryptConfig == "" {
 		decryptConfig = "decrypt.yaml"
@@ -25,7 +26,7 @@ func BuildService(opts ServiceOptions) (*Service, error) {
 
 	cfg, err := LoadConfig(decryptConfig)
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
 	if cfg != nil && cfg.ScriptsDir != "" {
 		scriptsDir = cfg.ScriptsDir
@@ -33,13 +34,27 @@ func BuildService(opts ServiceOptions) (*Service, error) {
 
 	scriptsAbs, err := filepath.Abs(scriptsDir)
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
 	configAbs, _ := filepath.Abs(decryptConfig)
 
 	timeout := 30 * time.Second
 	if cfg != nil && cfg.ExternalTimeout > 0 {
 		timeout = cfg.ExternalTimeout
+	}
+
+	processedURL = m3u8URL
+	activeID := ""
+	if providerIntegration.PreprocessURL != nil {
+		processedURL = providerIntegration.PreprocessURL(m3u8URL, opts.ProviderParams)
+	}
+	if providerIntegration.DetectFromURL != nil {
+		activeID = providerIntegration.DetectFromURL(processedURL)
+	}
+	if providerIntegration.ValidateParams != nil {
+		if err := providerIntegration.ValidateParams(activeID, opts.ProviderParams); err != nil {
+			return "", nil, err
+		}
 	}
 
 	reg, err := NewRegistry(RegistryOptions{
@@ -51,7 +66,11 @@ func BuildService(opts ServiceOptions) (*Service, error) {
 		ExternalTimeout: timeout,
 	})
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
-	return NewService(reg), nil
+	svc = NewService(reg, ServiceProviderOptions{
+		ActiveID: activeID,
+		Params:   opts.ProviderParams,
+	})
+	return processedURL, svc, nil
 }

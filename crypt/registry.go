@@ -71,6 +71,15 @@ func (r *Registry) Resolve(ctx *Context) (Decryptor, error) {
 	return d, nil
 }
 
+// HasExplicitScript reports whether decryption is pinned by CLI or config rule
+// (not auto-discovered from scripts_dir).
+func (r *Registry) HasExplicitScript(ctx *Context) bool {
+	if r.opts.CLIScript != "" {
+		return true
+	}
+	return r.matchConfigRule(ctx) != ""
+}
+
 func (r *Registry) Close() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

@@ -10,6 +10,7 @@ import (
 
 	"github.com/0377/m3u8/api"
 	"github.com/0377/m3u8/crypt"
+	_ "github.com/0377/m3u8/crypt/provider"
 	"github.com/0377/m3u8/parse"
 	"github.com/0377/m3u8/tool"
 	"github.com/google/uuid"
@@ -37,7 +38,7 @@ func NewManager(cfg Config) (*Manager, error) {
 	if maxTasks <= 0 {
 		maxTasks = 1
 	}
-	cryptSvc, err := crypt.BuildService(crypt.ServiceOptions{})
+	_, cryptSvc, err := crypt.BuildService("", crypt.ServiceOptions{})
 	if err != nil {
 		return nil, err
 	}

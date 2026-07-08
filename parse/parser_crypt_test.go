@@ -95,7 +95,7 @@ func TestFromURL_custom_method_with_key_hook(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := crypt.NewService(reg)
+	svc := crypt.NewService(reg, crypt.ServiceProviderOptions{})
 
 	rawKey := []byte("1234567890123456")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
