@@ -1,91 +1,33 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"os"
 
-	"github.com/0377/m3u8/dl"
+	"github.com/0377/m3u8/cmd"
 )
-
-const version = "1.2.0"
-
-var (
-	url      string
-	output   string
-	filename string
-	chanSize int
-	maxRetry int
-	toMP4    bool
-	showHelp bool
-)
-
-func init() {
-	flag.StringVar(&url, "u", "", "M3U8 地址（必填）")
-	flag.StringVar(&output, "o", ".", "输出目录（默认当前目录）")
-	flag.StringVar(&filename, "f", "main", "输出文件名（可带 .ts/.mp4 扩展名，默认 main）")
-	flag.IntVar(&chanSize, "c", 25, "下载并发数")
-	flag.IntVar(&maxRetry, "r", 10, "单分片最大重试次数")
-	flag.BoolVar(&toMP4, "mp4", true, "合并后转 MP4（默认开启，使用 -mp4=false 关闭）")
-	flag.BoolVar(&showHelp, "h", false, "显示帮助信息")
-	flag.BoolVar(&showHelp, "help", false, "显示帮助信息")
-	flag.Usage = usage
-}
 
 func main() {
-	flag.Parse()
-
-	if showHelp {
-		usage()
-		os.Exit(0)
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "serve":
+			cmd.RunServe(os.Args[2:])
+			return
+		case "help", "-h", "--help":
+			printUsage()
+			return
+		}
 	}
-
-	if url == "" {
-		fmt.Fprintln(os.Stderr, "错误: 必须指定 -u 参数")
-		fmt.Fprintln(os.Stderr)
-		usage()
-		os.Exit(1)
-	}
-	if chanSize <= 0 {
-		fmt.Fprintln(os.Stderr, "错误: 参数 -c 必须大于 0")
-		os.Exit(1)
-	}
-	if maxRetry < 0 {
-		fmt.Fprintln(os.Stderr, "错误: 参数 -r 不能小于 0")
-		os.Exit(1)
-	}
-
-	downloader, err := dl.NewTask(output, url, filename)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "错误: %v\n", err)
-		os.Exit(1)
-	}
-	if err := downloader.Start(chanSize, toMP4, maxRetry); err != nil {
-		fmt.Fprintf(os.Stderr, "错误: %v\n", err)
-		os.Exit(1)
-	}
-	fmt.Println("Done!")
+	cmd.RunDownload(os.Args[1:])
 }
 
-func usage() {
-	fmt.Fprintf(os.Stderr, `M3U8 下载工具 v%s - 下载并合并 TS 分片
+func printUsage() {
+	fmt.Fprintf(os.Stderr, `M3U8 工具 v%s
 
 用法:
-  m3u8 -u <URL> [选项]
+  m3u8 -u <URL> [选项]          下载 M3U8（CLI 模式）
+  m3u8 serve [选项]             启动 HTTP API 服务
 
-选项:
-`, version)
-	flag.PrintDefaults()
-	fmt.Fprintf(os.Stderr, `
-示例:
-  m3u8 -u=https://example.com/index.m3u8
-  m3u8 -u=https://example.com/index.m3u8 -o=./output
-  m3u8 -u https://example.com/index.m3u8 -o ./output -f myvideo
-
-说明:
-  - 仅支持 VOD 类型 M3U8
-  - -f 指定输出文件名，合并为 <目录>/<名称>.ts，转 MP4 时为 <目录>/<名称>.mp4
-  - 转 MP4 需要系统已安装 ffmpeg
-  - 部分链接限制请求频率，可适当调低 -c 并发数或提高 -r 重试次数
-`)
+运行 m3u8 serve -h 查看服务选项
+`, cmd.Version)
 }
