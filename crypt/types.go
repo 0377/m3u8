@@ -16,6 +16,8 @@ type Context struct {
 	SegmentIdx int
 	Method     string
 	KeyMeta    KeyMeta
+	Key        []byte
+	IV         []byte
 }
 
 type KeyMaterial struct {

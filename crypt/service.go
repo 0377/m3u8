@@ -11,6 +11,13 @@ func NewService(registry *Registry) *Service {
 	return &Service{registry: registry, builtin: &BuiltinDecryptor{}}
 }
 
+func (s *Service) Close() error {
+	if s.registry != nil {
+		return s.registry.Close()
+	}
+	return nil
+}
+
 func (s *Service) ProcessKey(ctx *Context, rawKey []byte, meta *KeyMeta) (KeyMaterial, error) {
 	d, err := s.registry.Resolve(ctx)
 	if err != nil {
@@ -24,6 +31,8 @@ func (s *Service) ProcessKey(ctx *Context, rawKey []byte, meta *KeyMeta) (KeyMat
 }
 
 func (s *Service) DecryptSegment(ctx *Context, ciphertext, key, iv []byte) ([]byte, error) {
+	ctx.Key = key
+	ctx.IV = iv
 	d, err := s.registry.Resolve(ctx)
 	if err != nil {
 		return nil, err

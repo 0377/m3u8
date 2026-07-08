@@ -96,14 +96,19 @@ func (d *starlarkDecryptor) DecryptFull(ctx *Context, ciphertext []byte) ([]byte
 	if !d.hasFull {
 		return nil, false, nil
 	}
+	key := ctx.Key
+	iv := ctx.IV
+	if len(iv) == 0 {
+		iv = ivBytes(&ctx.KeyMeta)
+	}
 	fn := d.globals["decrypt_full"].(starlark.Callable)
 	val, err := starlark.Call(d.thread, fn, starlark.Tuple{
 		starlarkBytes(ciphertext),
 		starlark.MakeInt(ctx.SegmentIdx),
 		starlark.String(ctx.SegmentURI),
 		starlark.String(ctx.Method),
-		starlarkBytes(nil),
-		starlarkBytes(ivBytes(&ctx.KeyMeta)),
+		starlarkBytes(key),
+		starlarkBytes(iv),
 	}, nil)
 	if err != nil {
 		return nil, true, fmt.Errorf("script error [%s/decrypt_full]: %w", d.name, err)

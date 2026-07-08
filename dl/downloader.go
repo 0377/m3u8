@@ -85,6 +85,9 @@ func NewTask(output string, url string, filename string, httpCfg *tool.HTTPConfi
 
 // Start runs downloader. When toMP4 is true, merged TS is converted to MP4 via ffmpeg.
 func (d *Downloader) Start(concurrency int, toMP4 bool, maxRetry int) error {
+	if d.cryptSvc != nil {
+		defer func() { _ = d.cryptSvc.Close() }()
+	}
 	d.maxRetry = maxRetry
 	var wg sync.WaitGroup
 	// struct{} zero size
@@ -162,6 +165,8 @@ func (d *Downloader) download(segIndex int) error {
 			M3U8URL:    d.result.URL.String(),
 			SegmentURI: sf.URI,
 			SegmentIdx: segIndex,
+			Key:        keyMat.Key,
+			IV:         iv,
 		}
 		if k := d.result.M3u8.Keys[sf.KeyIndex]; k != nil {
 			ctx.Method = string(k.Method)
@@ -171,7 +176,11 @@ func (d *Downloader) download(segIndex int) error {
 				IV:     k.IV,
 			}
 		}
-		bytes, err = d.cryptSvc.DecryptSegment(ctx, bytes, keyMat.Key, iv)
+		if d.cryptSvc != nil {
+			bytes, err = d.cryptSvc.DecryptSegment(ctx, bytes, keyMat.Key, iv)
+		} else {
+			bytes, err = tool.AES128Decrypt(bytes, keyMat.Key, iv)
+		}
 		if err != nil {
 			return fmt.Errorf("decrypt: %s, %s", tsUrl, err.Error())
 		}

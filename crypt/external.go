@@ -9,6 +9,7 @@ import (
 	"io"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -95,6 +96,20 @@ func (d *externalDecryptor) restart() error {
 }
 
 func (d *externalDecryptor) call(req extRequest) (extResponse, error) {
+	resp, err := d.doCall(req)
+	if err != nil && isTimeoutErr(err) {
+		if rerr := d.restart(); rerr == nil {
+			return d.doCall(req)
+		}
+	}
+	return resp, err
+}
+
+func isTimeoutErr(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "timeout")
+}
+
+func (d *externalDecryptor) doCall(req extRequest) (extResponse, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), d.timeout)
@@ -128,6 +143,9 @@ func (d *externalDecryptor) call(req extRequest) (extResponse, error) {
 
 	select {
 	case <-ctx.Done():
+		if d.cmd != nil && d.cmd.Process != nil {
+			_ = d.cmd.Process.Kill()
+		}
 		return extResponse{}, fmt.Errorf("external script timeout after %s", d.timeout)
 	case r := <-ch:
 		if r.err != nil {
@@ -202,7 +220,9 @@ func (d *externalDecryptor) DecryptFull(ctx *Context, ciphertext []byte) ([]byte
 	resp, err := d.call(extRequest{
 		ID: id, Hook: "full",
 		Ciphertext: base64.StdEncoding.EncodeToString(ciphertext),
-		Index: ctx.SegmentIdx, URI: ctx.SegmentURI, Method: ctx.Method,
+		Key:        base64.StdEncoding.EncodeToString(ctx.Key),
+		IV:         base64.StdEncoding.EncodeToString(ctx.IV),
+		Index:      ctx.SegmentIdx, URI: ctx.SegmentURI, Method: ctx.Method,
 	})
 	if err == ErrNotImplemented {
 		return nil, false, nil

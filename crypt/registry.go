@@ -1,11 +1,13 @@
 package crypt
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -20,6 +22,8 @@ type RegistryOptions struct {
 type Registry struct {
 	opts    RegistryOptions
 	builtin *BuiltinDecryptor
+	cache   map[string]Decryptor
+	mu      sync.Mutex
 }
 
 func NewRegistry(opts RegistryOptions) (*Registry, error) {
@@ -33,23 +37,81 @@ func NewRegistry(opts RegistryOptions) (*Registry, error) {
 	if opts.ExternalTimeout == 0 {
 		opts.ExternalTimeout = 30 * time.Second
 	}
-	return &Registry{opts: opts, builtin: &BuiltinDecryptor{}}, nil
+	return &Registry{
+		opts:    opts,
+		builtin: &BuiltinDecryptor{},
+		cache:   make(map[string]Decryptor),
+	}, nil
 }
 
 func (r *Registry) Resolve(ctx *Context) (Decryptor, error) {
+	cacheKey, scriptPath, useBuiltin, err := r.resolveTarget(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if d, ok := r.cache[cacheKey]; ok {
+		return d, nil
+	}
+
+	var d Decryptor
+	if useBuiltin {
+		d = r.builtin
+	} else {
+		d, err = r.loadScript(scriptPath)
+		if err != nil {
+			return nil, err
+		}
+	}
+	r.cache[cacheKey] = d
+	return d, nil
+}
+
+func (r *Registry) Close() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	var errs []error
+	for _, d := range r.cache {
+		if c, ok := d.(interface{ Close() error }); ok {
+			if err := c.Close(); err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+	r.cache = make(map[string]Decryptor)
+	return errors.Join(errs...)
+}
+
+func (r *Registry) resolveTarget(ctx *Context) (cacheKey, scriptPath string, useBuiltin bool, err error) {
 	if r.opts.CLIScript != "" {
-		return r.loadScript(r.opts.CLIScript)
+		abs, e := filepath.Abs(r.opts.CLIScript)
+		if e != nil {
+			return "", "", false, e
+		}
+		return abs, r.opts.CLIScript, false, nil
 	}
 	if rule := r.matchConfigRule(ctx); rule != "" {
-		return r.loadScript(rule)
+		abs, e := filepath.Abs(rule)
+		if e != nil {
+			return "", "", false, e
+		}
+		return abs, rule, false, nil
 	}
 	if script := r.autoDiscover(ctx); script != "" {
-		return r.loadScript(script)
+		abs, e := filepath.Abs(script)
+		if e != nil {
+			return "", "", false, e
+		}
+		return abs, script, false, nil
 	}
 	if ctx.Method == "AES-128" || ctx.Method == "" || ctx.Method == "NONE" {
-		return r.builtin, nil
+		return "builtin", "", true, nil
 	}
-	return nil, fmt.Errorf(
+	return "", "", false, fmt.Errorf(
 		`unsupported encryption method %q, add script to scripts/ or use -decrypt-script`,
 		ctx.Method,
 	)

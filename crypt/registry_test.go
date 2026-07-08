@@ -95,3 +95,35 @@ func TestRegistry_unknown_method_errors(t *testing.T) {
 		t.Fatal("expected error for unknown method")
 	}
 }
+
+func TestRegistry_cache_same_instance(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "AES-128.star")
+	if err := os.WriteFile(script, []byte(`def decrypt_key(raw_key, method, uri, iv, m3u8_url):
+    return {"key": raw_key, "iv": iv}
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	reg, err := NewRegistry(RegistryOptions{
+		ScriptsDir:    dir,
+		ScriptsDirAbs: dir,
+		CLIScript:     script,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reg.Close()
+
+	ctx := &Context{M3U8URL: "https://example.com/a.m3u8", Method: "AES-128"}
+	d1, err := reg.Resolve(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d2, err := reg.Resolve(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d1 != d2 {
+		t.Fatal("expected same decryptor instance from cache on second Resolve")
+	}
+}
