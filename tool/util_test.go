@@ -29,4 +29,14 @@ func TestResolveURL(t *testing.T) {
 	if result != expected {
 		t.Fatalf("wrong URL, expected: %s, result: %s", expected, result)
 	}
+
+	u, err = url.Parse("https://e/f/g.m3u8")
+	if err != nil {
+		t.Error(err)
+	}
+	result = ResolveURL(u, "../a/b/c.ts")
+	expected = "https://e/a/b/c.ts"
+	if result != expected {
+		t.Fatalf("wrong URL, expected: %s, result: %s", expected, result)
+	}
 }

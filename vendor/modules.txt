@@ -1,3 +1,9 @@
+# github.com/go-chi/chi/v5 v5.2.1
+## explicit; go 1.20
+github.com/go-chi/chi/v5
+# github.com/google/uuid v1.6.0
+## explicit
+github.com/google/uuid
 # go.starlark.net v0.0.0-20260630144053-529d8e869a14
 ## explicit; go 1.25.0
 go.starlark.net/internal/compile

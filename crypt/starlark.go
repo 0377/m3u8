@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
@@ -18,6 +19,7 @@ type starlarkDecryptor struct {
 	hasKey  bool
 	hasSeg  bool
 	hasFull bool
+	mu      sync.Mutex
 }
 
 func newStarlarkDecryptor(path string) (Decryptor, error) {
@@ -56,6 +58,8 @@ func (d *starlarkDecryptor) ProcessKey(ctx *Context, rawKey []byte, meta *KeyMet
 	if !d.hasKey {
 		return rawKey, ivBytes(meta), nil
 	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	fn := d.globals["decrypt_key"].(starlark.Callable)
 	iv := ""
 	if meta != nil {
@@ -78,6 +82,8 @@ func (d *starlarkDecryptor) DecryptSegment(ctx *Context, ciphertext, key, iv []b
 	if !d.hasSeg {
 		return nil, ErrNotImplemented
 	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	fn := d.globals["decrypt_segment"].(starlark.Callable)
 	val, err := starlark.Call(d.thread, fn, starlark.Tuple{
 		starlarkBytes(ciphertext),
@@ -96,6 +102,8 @@ func (d *starlarkDecryptor) DecryptFull(ctx *Context, ciphertext []byte) ([]byte
 	if !d.hasFull {
 		return nil, false, nil
 	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	key := ctx.Key
 	iv := ctx.IV
 	if len(iv) == 0 {

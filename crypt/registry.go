@@ -14,6 +14,7 @@ import (
 type RegistryOptions struct {
 	ScriptsDir      string
 	ScriptsDirAbs   string
+	ConfigPath      string
 	CLIScript       string
 	Config          *Config
 	ExternalTimeout time.Duration
@@ -88,18 +89,26 @@ func (r *Registry) Close() error {
 
 func (r *Registry) resolveTarget(ctx *Context) (cacheKey, scriptPath string, useBuiltin bool, err error) {
 	if r.opts.CLIScript != "" {
-		abs, e := filepath.Abs(r.opts.CLIScript)
+		resolved, e := resolveScriptPath(r.opts.CLIScript, r.opts.ScriptsDirAbs, r.opts.ConfigPath)
 		if e != nil {
 			return "", "", false, e
 		}
-		return abs, r.opts.CLIScript, false, nil
+		abs, e := filepath.Abs(resolved)
+		if e != nil {
+			return "", "", false, e
+		}
+		return abs, resolved, false, nil
 	}
 	if rule := r.matchConfigRule(ctx); rule != "" {
-		abs, e := filepath.Abs(rule)
+		resolved, err := resolveScriptPath(rule, r.opts.ScriptsDirAbs, r.opts.ConfigPath)
+		if err != nil {
+			return "", "", false, err
+		}
+		abs, e := filepath.Abs(resolved)
 		if e != nil {
 			return "", "", false, e
 		}
-		return abs, rule, false, nil
+		return abs, resolved, false, nil
 	}
 	if script := r.autoDiscover(ctx); script != "" {
 		abs, e := filepath.Abs(script)
@@ -183,34 +192,79 @@ func (r *Registry) autoDiscover(ctx *Context) string {
 }
 
 func (r *Registry) loadScript(path string) (Decryptor, error) {
-	if err := validateScriptPath(path, r.opts.ScriptsDirAbs, r.opts.CLIScript); err != nil {
+	resolved, err := resolveScriptPath(path, r.opts.ScriptsDirAbs, r.opts.ConfigPath)
+	if err != nil {
 		return nil, err
 	}
-	ext := strings.ToLower(filepath.Ext(path))
+	if err := validateScriptPath(resolved, r.opts); err != nil {
+		return nil, err
+	}
+	ext := strings.ToLower(filepath.Ext(resolved))
 	switch ext {
 	case ".star":
-		return newStarlarkDecryptor(path)
+		return newStarlarkDecryptor(resolved)
 	default:
-		return newExternalDecryptor(path, r.opts.ExternalTimeout)
+		return newExternalDecryptor(resolved, r.opts.ExternalTimeout)
 	}
 }
 
-func validateScriptPath(path, scriptsDirAbs, cliScript string) error {
+func resolveScriptPath(path, scriptsDirAbs, configPath string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("empty script path")
+	}
+	if filepath.IsAbs(path) {
+		return path, nil
+	}
+	candidates := []string{}
+	if configPath != "" {
+		candidates = append(candidates, filepath.Join(filepath.Dir(configPath), path))
+	}
+	if scriptsDirAbs != "" {
+		candidates = append(candidates, filepath.Join(scriptsDirAbs, path))
+	}
+	candidates = append(candidates, path)
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			abs, err := filepath.Abs(c)
+			if err != nil {
+				return "", err
+			}
+			return abs, nil
+		}
+	}
+	return filepath.Abs(path)
+}
+
+func validateScriptPath(path string, opts RegistryOptions) error {
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return err
 	}
-	if cliScript != "" {
-		cliAbs, err := filepath.Abs(cliScript)
+	if opts.CLIScript != "" {
+		cliAbs, err := filepath.Abs(opts.CLIScript)
 		if err == nil && abs == cliAbs {
 			return nil
 		}
+		resolvedCLI, err := resolveScriptPath(opts.CLIScript, opts.ScriptsDirAbs, opts.ConfigPath)
+		if err == nil {
+			cliAbs, err = filepath.Abs(resolvedCLI)
+			if err == nil && abs == cliAbs {
+				return nil
+			}
+		}
 	}
-	if scriptsDirAbs != "" {
-		rel, err := filepath.Rel(scriptsDirAbs, abs)
+	if opts.ScriptsDirAbs != "" {
+		rel, err := filepath.Rel(opts.ScriptsDirAbs, abs)
 		if err == nil && !strings.HasPrefix(rel, "..") {
 			return nil
 		}
 	}
-	return fmt.Errorf("script path %q must be under scripts_dir or specified via -decrypt-script", path)
+	if opts.ConfigPath != "" {
+		configDir := filepath.Dir(opts.ConfigPath)
+		rel, err := filepath.Rel(configDir, abs)
+		if err == nil && !strings.HasPrefix(rel, "..") {
+			return nil
+		}
+	}
+	return fmt.Errorf("script path %q must be under scripts_dir, config directory, or specified via -decrypt-script", path)
 }

@@ -127,3 +127,50 @@ func TestRegistry_cache_same_instance(t *testing.T) {
 		t.Fatal("expected same decryptor instance from cache on second Resolve")
 	}
 }
+
+func TestRegistry_config_rule_resolves_relative_script(t *testing.T) {
+	dir := t.TempDir()
+	scriptsDir := filepath.Join(dir, "myscripts")
+	if err := os.MkdirAll(scriptsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join(scriptsDir, "sample.py")
+	if err := os.WriteFile(script, []byte("#!/usr/bin/env python3\nimport sys\nfor l in sys.stdin: pass\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(dir, "decrypt.yaml")
+	config := `scripts_dir: myscripts
+rules:
+  - match:
+      method: SAMPLE-AES
+    script: sample.py
+`
+	if err := os.WriteFile(configPath, []byte(config), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scriptsAbs, _ := filepath.Abs(scriptsDir)
+	configAbs, _ := filepath.Abs(configPath)
+	reg, err := NewRegistry(RegistryOptions{
+		ScriptsDir:    "myscripts",
+		ScriptsDirAbs: scriptsAbs,
+		ConfigPath:    configAbs,
+		Config:        cfg,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reg.Close()
+
+	ctx := &Context{M3U8URL: "https://example.com/a.m3u8", Method: "SAMPLE-AES"}
+	d, err := reg.Resolve(ctx)
+	if err != nil {
+		t.Fatalf("resolve failed: %v", err)
+	}
+	if d.Name() != "sample.py" {
+		t.Fatalf("got %q", d.Name())
+	}
+}

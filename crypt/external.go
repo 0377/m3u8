@@ -62,16 +62,24 @@ func (d *externalDecryptor) Close() error {
 	defer d.mu.Unlock()
 	if d.stdin != nil {
 		_ = d.stdin.Close()
+		d.stdin = nil
 	}
 	if d.cmd != nil && d.cmd.Process != nil {
+		_ = d.cmd.Process.Kill()
 		_ = d.cmd.Wait()
 	}
+	d.cmd = nil
+	d.stdout = nil
 	return nil
 }
 
 func (d *externalDecryptor) start() error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	return d.startLocked()
+}
+
+func (d *externalDecryptor) startLocked() error {
 	cmd := exec.Command(d.path)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -91,8 +99,19 @@ func (d *externalDecryptor) start() error {
 }
 
 func (d *externalDecryptor) restart() error {
-	_ = d.Close()
-	return d.start()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.stdin != nil {
+		_ = d.stdin.Close()
+		d.stdin = nil
+	}
+	if d.cmd != nil && d.cmd.Process != nil {
+		_ = d.cmd.Process.Kill()
+		_ = d.cmd.Wait()
+	}
+	d.cmd = nil
+	d.stdout = nil
+	return d.startLocked()
 }
 
 func (d *externalDecryptor) call(req extRequest) (extResponse, error) {
@@ -102,7 +121,18 @@ func (d *externalDecryptor) call(req extRequest) (extResponse, error) {
 			return d.doCall(req)
 		}
 	}
+	if err != nil && isDeadProcessErr(err) {
+		_ = d.restart()
+	}
 	return resp, err
+}
+
+func isDeadProcessErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "stdout closed") || strings.Contains(msg, "broken pipe")
 }
 
 func isTimeoutErr(err error) bool {
@@ -179,9 +209,6 @@ func (d *externalDecryptor) ProcessKey(ctx *Context, rawKey []byte, meta *KeyMet
 		return rawKey, []byte(iv), nil
 	}
 	if err != nil {
-		if rerr := d.restart(); rerr == nil {
-			return d.ProcessKey(ctx, rawKey, meta)
-		}
 		return nil, nil, err
 	}
 	key, err := base64.StdEncoding.DecodeString(resp.Key)
@@ -201,15 +228,12 @@ func (d *externalDecryptor) DecryptSegment(ctx *Context, ciphertext, key, iv []b
 		ID: id, Hook: "segment",
 		Ciphertext: base64.StdEncoding.EncodeToString(ciphertext),
 		Key:        base64.StdEncoding.EncodeToString(key),
-		IV:         string(iv), Index: ctx.SegmentIdx, URI: ctx.SegmentURI,
+		IV:         base64.StdEncoding.EncodeToString(iv), Index: ctx.SegmentIdx, URI: ctx.SegmentURI,
 	})
 	if err == ErrNotImplemented {
 		return nil, ErrNotImplemented
 	}
 	if err != nil {
-		if rerr := d.restart(); rerr == nil {
-			return d.DecryptSegment(ctx, ciphertext, key, iv)
-		}
 		return nil, err
 	}
 	return base64.StdEncoding.DecodeString(resp.Data)
@@ -228,9 +252,6 @@ func (d *externalDecryptor) DecryptFull(ctx *Context, ciphertext []byte) ([]byte
 		return nil, false, nil
 	}
 	if err != nil {
-		if rerr := d.restart(); rerr == nil {
-			return d.DecryptFull(ctx, ciphertext)
-		}
 		return nil, true, err
 	}
 	out, err := base64.StdEncoding.DecodeString(resp.Data)

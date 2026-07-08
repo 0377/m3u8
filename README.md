@@ -49,6 +49,87 @@ Flags:
 -c  Concurrency, default 25
 ```
 
+## HTTP API
+
+In addition to CLI download, run `m3u8 serve` to start an HTTP API server for parsing M3U8 playlists, creating async download tasks, polling progress, and downloading finished files.
+
+### Starting the server
+
+**Development (no auth)**
+
+```bash
+make build
+./m3u8 serve --port 8080 --data-dir ./data
+```
+
+**Production (with API Key auth)**
+
+```bash
+./m3u8 serve \
+  --port 8080 \
+  --data-dir /var/m3u8/data \
+  --auth-enabled \
+  --api-key "your-secret-key" \
+  --max-tasks 3 \
+  --task-ttl 24h
+```
+
+Server options:
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--port` | `8080` | Listen port |
+| `--data-dir` | `./data` | Task and output storage directory |
+| `--auth-enabled` | `false` | Enable API Key authentication |
+| `--api-key` | | API Key (required when `--auth-enabled`) |
+| `--cors-origins` | `*` | Allowed CORS origins (comma-separated) |
+| `--max-tasks` | `3` | Max concurrent download tasks |
+| `--task-ttl` | `24h` | Retention period for completed tasks |
+| `--cleanup-interval` | `1h` | Expired task cleanup interval |
+
+When auth is enabled, all endpoints except health check require `X-API-Key: <key>` or `Authorization: Bearer <key>`.
+
+### Endpoints
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/api/v1/health` | No | Health check |
+| `POST` | `/api/v1/parse` | Yes* | Parse M3U8 playlist |
+| `POST` | `/api/v1/tasks` | Yes* | Create download task |
+| `GET` | `/api/v1/tasks` | Yes* | List tasks (`status`, `limit`, `offset` query params) |
+| `GET` | `/api/v1/tasks/{taskID}` | Yes* | Get task status and progress |
+| `GET` | `/api/v1/tasks/{taskID}/download` | Yes* | Download completed task output |
+| `DELETE` | `/api/v1/tasks/{taskID}` | Yes* | Cancel a running task |
+
+\* Required only when `--auth-enabled` is set.
+
+### Examples
+
+Parse an M3U8 URL (returns first 5 segments by default; use `?full=true` for all):
+
+```bash
+curl -X POST http://localhost:8080/api/v1/parse \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://example.com/index.m3u8"}'
+```
+
+Create a task and poll until complete:
+
+```bash
+# Create task
+curl -X POST http://localhost:8080/api/v1/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://example.com/index.m3u8","filename":"myvideo","concurrency":25}'
+
+# Poll status (replace <taskID> with returned task_id)
+curl http://localhost:8080/api/v1/tasks/<taskID>
+
+# Download output (when status is completed)
+curl -OJ http://localhost:8080/api/v1/tasks/<taskID>/download
+```
+
+When auth is enabled, add `-H "X-API-Key: your-secret-key"` to the requests above.
+
 ## Development
 
 Go Modules + vendor mode (`-mod=vendor`) for reproducible offline builds.
