@@ -6,16 +6,17 @@ import (
 	"io"
 	"net/url"
 
+	"github.com/0377/m3u8/crypt"
 	"github.com/0377/m3u8/tool"
 )
 
 type Result struct {
 	URL  *url.URL
 	M3u8 *M3u8
-	Keys map[int]string
+	Keys map[int]crypt.KeyMaterial
 }
 
-func FromURL(link string, httpCfg *tool.HTTPConfig) (*Result, error) {
+func FromURL(link string, httpCfg *tool.HTTPConfig, cryptSvc *crypt.Service) (*Result, error) {
 	u, err := url.Parse(link)
 	if err != nil {
 		return nil, err
@@ -33,7 +34,7 @@ func FromURL(link string, httpCfg *tool.HTTPConfig) (*Result, error) {
 	}
 	if len(m3u8.MasterPlaylist) != 0 {
 		sf := m3u8.MasterPlaylist[0]
-		return FromURL(tool.ResolveURL(u, sf.URI), httpCfg)
+		return FromURL(tool.ResolveURL(u, sf.URI), httpCfg, cryptSvc)
 	}
 	if len(m3u8.Segments) == 0 {
 		return nil, errors.New("can not found any TS file description")
@@ -41,30 +42,48 @@ func FromURL(link string, httpCfg *tool.HTTPConfig) (*Result, error) {
 	result := &Result{
 		URL:  u,
 		M3u8: m3u8,
-		Keys: make(map[int]string),
+		Keys: make(map[int]crypt.KeyMaterial),
 	}
 
 	for idx, key := range m3u8.Keys {
-		switch {
-		case key.Method == "" || key.Method == CryptMethodNONE:
+		if key.Method == "" || key.Method == CryptMethodNONE {
 			continue
-		case key.Method == CryptMethodAES:
-			// Request URL to extract decryption key
-			keyURL := key.URI
-			keyURL = tool.ResolveURL(u, keyURL)
-			resp, err := tool.Get(keyURL, httpCfg)
-			if err != nil {
-				return nil, fmt.Errorf("extract key failed: %s", err.Error())
+		}
+		if cryptSvc == nil && key.Method != CryptMethodAES {
+			return nil, fmt.Errorf("unknown or unsupported cryption method: %s", key.Method)
+		}
+		keyURL := tool.ResolveURL(u, key.URI)
+		resp, err := tool.Get(keyURL, httpCfg)
+		if err != nil {
+			return nil, fmt.Errorf("extract key failed: %s", err.Error())
+		}
+		keyByte, err := io.ReadAll(resp)
+		_ = resp.Close()
+		if err != nil {
+			return nil, err
+		}
+		if cryptSvc != nil {
+			meta := &crypt.KeyMeta{
+				Method: string(key.Method),
+				URI:    key.URI,
+				IV:     key.IV,
 			}
-			keyByte, err := io.ReadAll(resp)
-			_ = resp.Close()
+			ctx := &crypt.Context{
+				M3U8URL: link,
+				Method:  string(key.Method),
+				KeyMeta: *meta,
+			}
+			material, err := cryptSvc.ProcessKey(ctx, keyByte, meta)
 			if err != nil {
 				return nil, err
 			}
-			fmt.Println("decryption key: ", string(keyByte))
-			result.Keys[idx] = string(keyByte)
-		default:
-			return nil, fmt.Errorf("unknown or unsupported cryption method: %s", key.Method)
+			result.Keys[idx] = material
+		} else {
+			iv := []byte(nil)
+			if key.IV != "" {
+				iv = []byte(key.IV)
+			}
+			result.Keys[idx] = crypt.KeyMaterial{Key: keyByte, IV: iv}
 		}
 	}
 	return result, nil

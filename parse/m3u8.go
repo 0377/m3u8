@@ -202,9 +202,6 @@ func parse(reader io.Reader) (*M3u8, error) {
 				return nil, fmt.Errorf("invalid EXT-X-KEY: %s, line: %d", line, i+1)
 			}
 			method := CryptMethod(params["METHOD"])
-			if method != "" && method != CryptMethodAES && method != CryptMethodNONE {
-				return nil, fmt.Errorf("invalid EXT-X-KEY method: %s, line: %d", method, i+1)
-			}
 			keyIndex++
 			key = new(Key)
 			key.Method = method

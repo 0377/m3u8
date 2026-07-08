@@ -42,7 +42,7 @@ type Downloader struct {
 // NewTask returns a Task instance.
 // filename is the output base name or filename (e.g. "video", "video.mp4"); empty uses "main".
 func NewTask(output string, url string, filename string, httpCfg *tool.HTTPConfig) (*Downloader, error) {
-	result, err := parse.FromURL(url, httpCfg)
+	result, err := parse.FromURL(url, httpCfg, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -149,10 +149,13 @@ func (d *Downloader) download(segIndex int) error {
 	if sf == nil {
 		return fmt.Errorf("invalid segment index: %d", segIndex)
 	}
-	key, ok := d.result.Keys[sf.KeyIndex]
-	if ok && key != "" {
-		bytes, err = tool.AES128Decrypt(bytes, []byte(key),
-			[]byte(d.result.M3u8.Keys[sf.KeyIndex].IV))
+	keyMat, ok := d.result.Keys[sf.KeyIndex]
+	if ok && len(keyMat.Key) > 0 {
+		iv := keyMat.IV
+		if len(iv) == 0 && d.result.M3u8.Keys[sf.KeyIndex] != nil {
+			iv = []byte(d.result.M3u8.Keys[sf.KeyIndex].IV)
+		}
+		bytes, err = tool.AES128Decrypt(bytes, keyMat.Key, iv)
 		if err != nil {
 			return fmt.Errorf("decryt: %s, %s", tsUrl, err.Error())
 		}
