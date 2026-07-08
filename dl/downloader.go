@@ -359,6 +359,9 @@ func (d *Downloader) merge() error {
 	_ = writer.Flush()
 	// Remove `ts` folder
 	_ = os.RemoveAll(d.tsFolder)
+	if err := RemoveTaskMeta(d.folder); err != nil {
+		return fmt.Errorf("remove task meta failed: %w", err)
+	}
 
 	if mergedCount != d.segLen {
 		fmt.Printf("[warning] \n%d files merge failed", d.segLen-mergedCount)
