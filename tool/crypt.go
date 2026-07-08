@@ -51,7 +51,14 @@ func pkcs5UnPadding(origData []byte) []byte {
 	return origData[:(length - unPadding)]
 }
 
-// AES128CBCDecryptRaw decrypts one or more AES blocks without PKCS7 unpadding.
+// AES128CBCDecryptRaw decrypts one or more AES-CBC blocks without PKCS7 unpadding.
+//
+// The name follows this package's AES128* convention, but key may be 16, 24, or 32 bytes
+// (AES-128, AES-192, or AES-256). Tencent Cloud VOD SimpleAES uses a 32-byte SHA256 digest
+// as the key.
+//
+// When iv is nil or empty, a zero IV is used. This differs from AES128Decrypt, which falls
+// back to key-as-IV when iv is omitted.
 func AES128CBCDecryptRaw(ciphertext, key, iv []byte) ([]byte, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
